@@ -1,26 +1,27 @@
 # inchiscope_aurora
 
 `aurora_tracker_node` connects to the NDI Aurora field generator over a
-serial port, loads/detects two tools, starts tracking, and publishes both
+serial port, auto-detects both tools, starts tracking, and publishes both
 tools' pose:
 
-- **reference** -- its SROM is on its own physical chip, so it's
-  auto-detected once the node connects: no `.rom` file or path needed for
-  it at all. Bench wiring: SCU port 1.
+- **reference** -- its SROM is on its own physical chip. No `.rom` file,
+  path, or port number needed for it at all.
 - **sensor_0** -- the 6D sensor mounted at the endoscope tip, identified by
   a **virtual SROM**: a tool definition file uploaded over the wire instead
   of read from a physical connector chip, since the bare sensor coil has no
   onboard SROM chip of its own. NDI (or whoever characterised your coil)
-  will have given you this as a `.rom` file. Bench wiring: SCU port 2 (set
-  via `sensor_port_number`, default `"02"`).
+  will have given you this as a `.rom` file.
 
-Aurora sensors are wired EM coils, not "wireless" tools in the CAPI sense
-(that term means Polaris/Vega passive/active-wireless markers) -- both
-tools need `toolType="0"` (Wired) and their actual physical port number, or
-Aurora rejects the request outright (`ERROR01 Invalid command`). The
-reference is discovered automatically at whatever port it's plugged into;
-the sensor's port has to be told to the node explicitly since we're the
-ones requesting a port handle for its virtual SROM upload (`PVWR`).
+Neither tool needs you to say which physical SCU port it's on. Aurora
+doesn't have a `PHRQ` command at all (checked against the official API
+guide's command list -- it's Polaris/Vega-only terminology for a tool with
+no physical connection, which doesn't describe an Aurora sensor); instead,
+a plain port search (`PHSR`) auto-detects and assigns handles to both
+tools, chip or not, since every Aurora tool is physically wired to a
+numbered port. The node tells them apart by whether a port handle already
+has chip data (the reference) or not (the sensor, which then gets its
+virtual SROM uploaded onto that handle) -- so it doesn't matter which
+physical port either tool is wired into.
 
 Topics: `/aurora/reference/pose`, `/aurora/sensor_0/pose`
 (`geometry_msgs/msg/PoseStamped`, in the `aurora_field` frame by default),
@@ -61,7 +62,6 @@ aurora_tracker_node:
   ros__parameters:
     field_generator_port: /dev/ttyUSB0
     sensor_srom_path: /path/to/distal_sensor_virtual.rom
-    sensor_port_number: "02"  # whichever SCU port the sensor is wired into
 ```
 
 The node refuses to connect (and logs why, throttled) until `sensor_srom_path`

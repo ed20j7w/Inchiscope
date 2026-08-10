@@ -37,9 +37,6 @@ aurora_tracker_node:
   ros__parameters:
     field_generator_port: /dev/ttyUSB0
     sensor_srom_path: "src/inchiscope_bringup/config/sroms/1750_6D.rom"
-    # Physical SCU port the sensor coil is wired into (bench wiring:
-    # reference on port 1, sensor on port 2). Update if you rewire.
-    sensor_port_number: "02"
     publish_rate_hz: 40.0
     reconnect_period_sec: 5.0
     field_frame_id: aurora_field

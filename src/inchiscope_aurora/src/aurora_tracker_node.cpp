@@ -39,12 +39,11 @@ bool fileReadable(const std::string & path)
 }  // namespace
 
 /**
- * Connects to the Aurora field generator, loads the distal 6D sensor's
- * virtual SROM (a tool definition uploaded over the wire rather than read
- * from a physical connector chip, since the sensor coil has no onboard SROM
- * chip of its own), auto-detects the reference tool (its SROM is on its own
- * physical chip, so no upload is needed for it), and publishes both tools'
- * pose.
+ * Connects to the Aurora field generator, auto-detects both tools via PHSR,
+ * uploads the distal 6D sensor's virtual SROM onto its (chipless) port --
+ * a tool definition sent over the wire rather than read from a physical
+ * connector chip -- and publishes both tools' pose. The reference tool
+ * needs no upload since its SROM is on its own physical chip.
  *
  * The vendor "Combined API Sample C++" SDK this links against is not
  * vendored in this repo (proprietary, no redistribution grant) -- see
@@ -60,7 +59,6 @@ public:
   {
     declare_parameter("field_generator_port", "/dev/ttyUSB0");
     declare_parameter("sensor_srom_path", "");
-    declare_parameter("sensor_port_number", "02");
     declare_parameter("publish_rate_hz", 40.0);
     declare_parameter("reconnect_period_sec", 5.0);
     declare_parameter("field_frame_id", "aurora_field");
@@ -129,36 +127,17 @@ private:
 
     freeStalePorts();
 
-    // Both tools are physically wired into SCU ports -- PHRQ (which
-    // manufactures a port handle for a tool with no physical connection at
-    // all, e.g. an optical passive/wireless marker on Polaris/Vega) doesn't
-    // apply here and this firmware rejects it outright. Both the reference
-    // port and the sensor's port show up on their own via a port search;
-    // the only difference is the sensor's port has no onboard chip, so we
-    // PVWR its virtual SROM onto the discovered-but-empty handle before
-    // initializing it.
-    const std::string sensor_port_number = get_parameter("sensor_port_number").as_string();
-    sensor_port_handle_ = findPortHandleByNumber(sensor_port_number);
-    if (sensor_port_handle_ < 0) {
-      RCLCPP_ERROR(
-        get_logger(),
-        "No port handle found for sensor_port_number '%s' -- check the "
-        "sensor is plugged into that SCU port, will retry",
-        sensor_port_number.c_str());
+    // PHRQ doesn't exist in Aurora's command set at all (confirmed against
+    // the official API guide's command list) -- it's Polaris/Vega-only
+    // terminology for manufacturing a handle for a tool with no physical
+    // connection. Aurora auto-detects and assigns handles to both tools via
+    // plain PHSR, chip or no chip (API guide, PHSR usage note 1), since
+    // every Aurora tool is physically wired to a numbered SCU port.
+    if (!classifyPortsAndLoadSensor(sensor_srom)) {
       return;
     }
-    capi_.loadSromToPort(sensor_srom, sensor_port_handle_);
 
     initializeAndEnablePorts();
-
-    reference_port_handle_ = findReferencePortHandle();
-    if (reference_port_handle_ < 0) {
-      RCLCPP_ERROR(
-        get_logger(),
-        "No reference tool detected (only the sensor port came up enabled) "
-        "-- check the reference tool is connected, will retry");
-      return;
-    }
 
     if (capi_.startTracking() != 0) {
       RCLCPP_ERROR(get_logger(), "Aurora startTracking() failed, will retry");
@@ -177,26 +156,68 @@ private:
       std::bind(&AuroraTrackerNode::pollAndPublish, this));
   }
 
-  // Finds the not-yet-initialized port handle matching a given physical SCU
-  // port number (e.g. "02"). Both the reference tool and the sensor coil
-  // are physically wired in, so both show up here without needing PHRQ --
-  // this firmware rejects PHRQ outright regardless of its arguments (it's
-  // meant for tools with no physical connection at all, e.g. Polaris/Vega
-  // passive/active-wireless markers, which doesn't describe an Aurora
-  // sensor). PortHandleInfo doesn't expose a distinct "physical port"
-  // field, but for Aurora the port handle value returned by PHSR is itself
-  // the physical port number.
-  int findPortHandleByNumber(const std::string & portNumber)
+  // Discovers both tools (PHSR auto-assigns handles to both, chip or not)
+  // and tells them apart by whether PHINF reports a real serial number:
+  // the reference tool's onboard chip is readable as soon as it's
+  // detected, while the bare sensor coil has never had a definition
+  // assigned, so it comes back empty. (Confirmed from CombinedApi.cpp:
+  // portHandleInfo() collapses both "ERROR" and "UNOCCUPIED" replies to an
+  // empty PortHandleInfo, so an empty serial number is a safe signal
+  // either way -- we don't need to know which one Aurora actually
+  // returns.) The chipless one gets its virtual SROM uploaded (PVWR) here,
+  // before either port is PINIT'd -- PVWR must happen before PINIT for a
+  // tool with no onboard SROM (API guide, PINIT usage note 1).
+  //
+  // This also sidesteps a real gap in the vendor C++ wrapper: PHINF's
+  // "Main Type" field (which would directly say "Reference") and its
+  // "physical port location" field (reply options 0001's tool type byte
+  // and 0080 respectively) are both parsed by the library internally but
+  // never exposed publicly -- see PortHandleInfo.h/.cpp.
+  bool classifyPortsAndLoadSensor(const std::string & sensor_srom)
   {
     const auto handles =
       capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
-    const int wanted = capi_.stringToInt(portNumber);
+
+    sensor_port_handle_ = -1;
+    reference_port_handle_ = -1;
+
     for (const auto & info : handles) {
-      if (capi_.stringToInt(info.getPortHandle()) == wanted) {
-        return wanted;
+      const int handle = capi_.stringToInt(info.getPortHandle());
+      const PortHandleInfo detail = capi_.portHandleInfo(info.getPortHandle());
+
+      if (detail.getSerialNumber().empty()) {
+        if (sensor_port_handle_ >= 0) {
+          RCLCPP_WARN(
+            get_logger(),
+            "Multiple chipless ports found; using port %d as the sensor, "
+            "ignoring port %d", sensor_port_handle_, handle);
+          continue;
+        }
+        sensor_port_handle_ = handle;
+      } else {
+        if (reference_port_handle_ >= 0) {
+          RCLCPP_WARN(
+            get_logger(),
+            "Multiple tools with chip data found; using port %d as the "
+            "reference, ignoring port %d", reference_port_handle_, handle);
+          continue;
+        }
+        reference_port_handle_ = handle;
       }
     }
-    return -1;
+
+    if (sensor_port_handle_ < 0 || reference_port_handle_ < 0) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "Expected one chip tool (reference) and one chipless tool "
+        "(sensor) on the SCU; found %s%s -- will retry",
+        reference_port_handle_ < 0 ? "no reference tool " : "",
+        sensor_port_handle_ < 0 ? "no chipless sensor port " : "");
+      return false;
+    }
+
+    capi_.loadSromToPort(sensor_srom, sensor_port_handle_);
+    return true;
   }
 
   // API guide Figure 2-1, step 1: free any port handles left over from a
@@ -243,32 +264,6 @@ private:
         capi_.portHandleEnable(info.getPortHandle());
       }
     }
-  }
-
-  // The reference tool is whichever enabled port isn't the sensor port we
-  // just created ourselves. Only expects one such tool; warns and ignores
-  // the rest if more than one shows up.
-  int findReferencePortHandle()
-  {
-    const auto enabled =
-      capi_.portHandleSearchRequest(PortHandleSearchRequestOption::Enabled);
-    int reference_handle = -1;
-    for (const auto & info : enabled) {
-      const int handle = capi_.stringToInt(info.getPortHandle());
-      if (handle == sensor_port_handle_) {
-        continue;
-      }
-      if (reference_handle >= 0) {
-        RCLCPP_WARN(
-          get_logger(),
-          "Multiple non-sensor tools enabled; using port %d as reference, "
-          "ignoring port %d",
-          reference_handle, handle);
-        continue;
-      }
-      reference_handle = handle;
-    }
-    return reference_handle;
   }
 
   void pollAndPublish()
