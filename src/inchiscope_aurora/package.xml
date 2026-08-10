@@ -3,17 +3,20 @@
 <package format="3">
   <name>inchiscope_aurora</name>
   <version>0.1.0</version>
-  <description>NDI Aurora EM tracker interface: publishes tip pose and broadcasts the tf2 transform.</description>
+  <description>NDI Aurora EM tracker interface: publishes reference and tip-sensor pose, broadcasts the tf2 transforms.</description>
   <maintainer email="ed20j7w@leeds.ac.uk">Inchiscope</maintainer>
   <license>Apache-2.0</license>
 
-  <depend>rclpy</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
   <depend>tf2_ros</depend>
 
-  <test_depend>python3-pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

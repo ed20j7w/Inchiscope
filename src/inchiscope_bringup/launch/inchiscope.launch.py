@@ -1,11 +1,12 @@
 """Full-system bring-up.
 
 Starts every node in the stack against the shared params file. Nodes whose
-control logic hasn't been implemented yet (pba_control, ab_control, control,
-aurora -- see each node's docstring for phase/status) still start cleanly;
-their action servers just abort goals with an explanatory message until
-that logic lands. camera_node is functional as soon as a capture-card
-device is present.
+control logic hasn't been implemented yet (pba_control, ab_control, control
+-- see each node's docstring for phase/status) still start cleanly; their
+action servers just abort goals with an explanatory message until that
+logic lands. camera_node is functional as soon as a capture-card device is
+present, and aurora_tracker_node is functional given the vendor SDK and
+.rom files it needs -- see inchiscope_aurora/README.md.
 """
 
 import os

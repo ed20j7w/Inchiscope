@@ -15,7 +15,7 @@ src/
 ├── inchiscope_pba_control/    # CC model + piston targets                [Phase 2 - skeleton]
 ├── inchiscope_ab_control/     # diameter -> pressure, safety clamp       [Phase 2 - skeleton]
 ├── inchiscope_control/        # state machine, action orchestration      [Phase 3 - skeleton]
-├── inchiscope_aurora/         # EM tracker pose                          [Phase 4 - skeleton, SDK spike needed]
+├── inchiscope_aurora/         # EM tracker pose (C++/ament_cmake)        [Phase 4 - implemented, needs vendor SDK + .rom files]
 ├── inchiscope_camera/         # NanEye feed via capture card             [Phase 4 - functional]
 └── inchiscope_bringup/        # launch files, params, rosbag2 recording
 ```
@@ -31,15 +31,16 @@ intended build order.
 
 ### Open items
 
-- **Aurora EM tracker SDK binding.** The vendor "Combined API Sample C++
-  v1.9.7" is a C++ class API (prebuilt `libndicapi.so` for Linux included,
-  full source also provided) with no official Python bindings, and it's
-  proprietary NDI sample code with no redistribution grant in its
-  `license.txt` -- so it is **not vendored into this repo**. Drop it locally
-  under `third_party/ndi_combined_api/` (gitignored) before working on
-  `inchiscope_aurora`, and see that package's node docstring for the two
-  binding options under consideration (pybind11 wrapper vs. a small
-  standalone C++ node).
+- **Aurora EM tracker.** `inchiscope_aurora` is now a real ament_cmake C++
+  node (`aurora_tracker_node`) built directly against NDI's "Combined API
+  Sample C++ v1.9.7" -- no pybind11 needed, since the SDK's `connect()`
+  handles a serial device path natively. The SDK itself is still **not
+  vendored into this repo** (proprietary, no redistribution grant in its
+  `license.txt`): drop it locally under
+  `third_party/ndi_combined_api/CombinedAPIsample/` (gitignored) before
+  building, and set `reference_srom_path` / `sensor_srom_path` in
+  `inchiscope_bringup/config/params.yaml` to your actual `.rom` files. See
+  `src/inchiscope_aurora/README.md` for the full setup.
 - **AB diameter->pressure curve and pressure ceilings** in
   `inchiscope_bringup/config/params.yaml` are placeholders pending the real
   fit from the paper's characterisation data (Fig. 4a-I, section III-A).

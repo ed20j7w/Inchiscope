@@ -35,9 +35,16 @@ ab_control_node:
 
 aurora_tracker_node:
   ros__parameters:
-    srom_path: ""  # path to the generated virtual SROM; empty until the SDK binding lands
     field_generator_port: /dev/ttyUSB0
+    # PLACEHOLDER paths -- must both be set to real .rom files before this
+    # node will connect. See inchiscope_aurora/README.md.
+    reference_srom_path: ""
+    sensor_srom_path: ""
     publish_rate_hz: 40.0
+    reconnect_period_sec: 5.0
+    field_frame_id: aurora_field
+    reference_frame_id: aurora_reference
+    sensor_frame_id: aurora_sensor_0
 
 camera_node:
   ros__parameters:
