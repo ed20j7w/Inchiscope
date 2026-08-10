@@ -10,6 +10,10 @@ firmware/**/.vscode/
 # Proprietary vendor SDKs (not redistributable -- see inchiscope_aurora docstring)
 third_party/
 
+# Aurora SROM files -- tied to a specific physical sensor's characterisation,
+# not source (see src/inchiscope_bringup/config/sroms/README.md)
+*.rom
+
 # Python
 __pycache__/
 *.pyc

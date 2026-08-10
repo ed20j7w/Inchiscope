@@ -38,8 +38,9 @@ intended build order.
   vendored into this repo** (proprietary, no redistribution grant in its
   `license.txt`): drop it locally under
   `third_party/ndi_combined_api/CombinedAPIsample/` (gitignored) before
-  building, and set `reference_srom_path` / `sensor_srom_path` in
-  `inchiscope_bringup/config/params.yaml` to your actual `.rom` files. See
+  building. The reference tool's SROM is on its own physical chip and is
+  auto-detected; only the 6D sensor needs a `.rom` file (its virtual SROM)
+  -- set `sensor_srom_path` in `inchiscope_bringup/config/params.yaml`. See
   `src/inchiscope_aurora/README.md` for the full setup.
 - **AB diameter->pressure curve and pressure ceilings** in
   `inchiscope_bringup/config/params.yaml` are placeholders pending the real

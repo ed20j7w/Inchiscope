@@ -27,11 +27,12 @@ bool fileReadable(const std::string & path)
 }  // namespace
 
 /**
- * Connects to the Aurora field generator, loads the reference tool and the
- * distal 6D sensor (identified by its virtual SROM -- a tool definition
- * uploaded over the wire rather than read from a physical connector chip,
- * since the sensor coil has no onboard SROM chip of its own), and publishes
- * both tools' pose.
+ * Connects to the Aurora field generator, loads the distal 6D sensor's
+ * virtual SROM (a tool definition uploaded over the wire rather than read
+ * from a physical connector chip, since the sensor coil has no onboard SROM
+ * chip of its own), auto-detects the reference tool (its SROM is on its own
+ * physical chip, so no upload is needed for it), and publishes both tools'
+ * pose.
  *
  * The vendor "Combined API Sample C++" SDK this links against is not
  * vendored in this repo (proprietary, no redistribution grant) -- see
@@ -46,7 +47,6 @@ public:
   : Node("aurora_tracker_node")
   {
     declare_parameter("field_generator_port", "/dev/ttyUSB0");
-    declare_parameter("reference_srom_path", "");
     declare_parameter("sensor_srom_path", "");
     declare_parameter("publish_rate_hz", 40.0);
     declare_parameter("reconnect_period_sec", 5.0);
@@ -88,21 +88,18 @@ private:
     }
 
     const std::string port = get_parameter("field_generator_port").as_string();
-    const std::string reference_srom = get_parameter("reference_srom_path").as_string();
     const std::string sensor_srom = get_parameter("sensor_srom_path").as_string();
 
-    if (reference_srom.empty() || sensor_srom.empty()) {
+    if (sensor_srom.empty()) {
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 10000,
-        "reference_srom_path and sensor_srom_path parameters must both be set "
-        "-- see inchiscope_aurora/README.md");
+        "sensor_srom_path parameter must be set -- see inchiscope_aurora/README.md");
       return;
     }
-    if (!fileReadable(reference_srom) || !fileReadable(sensor_srom)) {
+    if (!fileReadable(sensor_srom)) {
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 10000,
-        "cannot read a configured .rom file (reference: '%s', sensor: '%s')",
-        reference_srom.c_str(), sensor_srom.c_str());
+        "cannot read the configured sensor .rom file: '%s'", sensor_srom.c_str());
       return;
     }
 
@@ -117,16 +114,26 @@ private:
       return;
     }
 
-    reference_port_handle_ = loadTool(reference_srom);
+    // The reference tool's SROM is on its own physical chip -- it's
+    // auto-detected by the port handle search below, no PVWR needed. Only
+    // the bare sensor coil (no chip of its own) needs its virtual SROM
+    // uploaded explicitly.
     sensor_port_handle_ = loadTool(sensor_srom);
-    if (reference_port_handle_ < 0 || sensor_port_handle_ < 0) {
-      RCLCPP_ERROR(
-        get_logger(),
-        "Failed to load one or both .rom files onto a port handle, will retry");
+    if (sensor_port_handle_ < 0) {
+      RCLCPP_ERROR(get_logger(), "Failed to load the sensor .rom file, will retry");
       return;
     }
 
     initializeAndEnablePorts();
+
+    reference_port_handle_ = findReferencePortHandle();
+    if (reference_port_handle_ < 0) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "No reference tool detected (only the sensor port came up enabled) "
+        "-- check the reference tool is connected, will retry");
+      return;
+    }
 
     if (capi_.startTracking() != 0) {
       RCLCPP_ERROR(get_logger(), "Aurora startTracking() failed, will retry");
@@ -164,12 +171,41 @@ private:
 
   void initializeAndEnablePorts()
   {
+    // Covers both the sensor's just-created port handle and the reference
+    // tool's port handle, which shows up here automatically once its
+    // on-chip SROM is read -- no PVWR needed for it.
     const auto handles =
       capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
     for (const auto & info : handles) {
       capi_.portHandleInitialize(info.getPortHandle());
       capi_.portHandleEnable(info.getPortHandle());
     }
+  }
+
+  // The reference tool is whichever enabled port isn't the sensor port we
+  // just created ourselves. Only expects one such tool; warns and ignores
+  // the rest if more than one shows up.
+  int findReferencePortHandle()
+  {
+    const auto enabled =
+      capi_.portHandleSearchRequest(PortHandleSearchRequestOption::Enabled);
+    int reference_handle = -1;
+    for (const auto & info : enabled) {
+      const int handle = capi_.stringToInt(info.getPortHandle());
+      if (handle == sensor_port_handle_) {
+        continue;
+      }
+      if (reference_handle >= 0) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Multiple non-sensor tools enabled; using port %d as reference, "
+          "ignoring port %d",
+          reference_handle, handle);
+        continue;
+      }
+      reference_handle = handle;
+    }
+    return reference_handle;
   }
 
   void pollAndPublish()

@@ -1,16 +1,17 @@
 # inchiscope_aurora
 
 `aurora_tracker_node` connects to the NDI Aurora field generator over a
-serial port, loads two tools, starts tracking, and publishes both tools'
-pose:
+serial port, loads/detects two tools, starts tracking, and publishes both
+tools' pose:
 
-- **reference** -- a tool with a normal factory-supplied `.rom` file, used
-  as a fixed reference frame.
+- **reference** -- its SROM is on its own physical chip, so it's
+  auto-detected once the node connects: no `.rom` file or path needed for
+  it at all.
 - **sensor_0** -- the 6D sensor mounted at the endoscope tip, identified by
   a **virtual SROM**: a tool definition file uploaded over the wire instead
   of read from a physical connector chip, since the bare sensor coil has no
-  onboard SROM chip. NDI (or whoever characterised your coil) will have
-  given you this as a `.rom` file.
+  onboard SROM chip of its own. NDI (or whoever characterised your coil)
+  will have given you this as a `.rom` file.
 
 Topics: `/aurora/reference/pose`, `/aurora/sensor_0/pose`
 (`geometry_msgs/msg/PoseStamped`, in the `aurora_field` frame by default),
@@ -39,21 +40,23 @@ If the SDK isn't found, `colcon build` prints a warning and skips
 `aurora_tracker_node` rather than failing the whole workspace -- check the
 build log if the executable is missing.
 
-## 2. Get your two `.rom` files
+## 2. Get the sensor's virtual SROM
 
-Set these before launching (`inchiscope_bringup/config/params.yaml` or
+Put the 6D sensor's `.rom` file somewhere findable -- e.g.
+`inchiscope_bringup/config/sroms/` (see the README there) -- and set it
+before launching (`inchiscope_bringup/config/params.yaml` or
 `--ros-args -p ...`):
 
 ```yaml
 aurora_tracker_node:
   ros__parameters:
     field_generator_port: /dev/ttyUSB0
-    reference_srom_path: /path/to/reference.rom
     sensor_srom_path: /path/to/distal_sensor_virtual.rom
 ```
 
-The node refuses to connect (and logs why, throttled) until both paths are
-set and readable.
+The node refuses to connect (and logs why, throttled) until this path is
+set and readable. Nothing needs setting for the reference tool -- it's
+found automatically once connected.
 
 ## 3. Run it
 

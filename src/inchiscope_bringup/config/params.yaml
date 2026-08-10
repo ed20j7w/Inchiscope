@@ -36,9 +36,11 @@ ab_control_node:
 aurora_tracker_node:
   ros__parameters:
     field_generator_port: /dev/ttyUSB0
-    # PLACEHOLDER paths -- must both be set to real .rom files before this
-    # node will connect. See inchiscope_aurora/README.md.
-    reference_srom_path: ""
+    # PLACEHOLDER -- must be set to the 6D sensor's virtual SROM .rom file
+    # before this node will connect. Suggested location: put the file in
+    # config/sroms/ (see the README there) and point this at it. The
+    # reference tool's SROM is on its own physical chip and is
+    # auto-detected -- it needs no path here.
     sensor_srom_path: ""
     publish_rate_hz: 40.0
     reconnect_period_sec: 5.0
