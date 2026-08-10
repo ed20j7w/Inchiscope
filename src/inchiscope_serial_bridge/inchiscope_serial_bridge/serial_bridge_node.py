@@ -30,7 +30,7 @@ class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
 
-        self.declare_parameter('port', '/dev/ttyACM0')
+        self.declare_parameter('port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('piston_at_target_threshold_mm', 0.1)
         self.declare_parameter('telemetry_timeout_sec', 1.0)

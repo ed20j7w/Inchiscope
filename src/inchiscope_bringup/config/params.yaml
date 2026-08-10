@@ -6,7 +6,7 @@
 
 serial_bridge_node:
   ros__parameters:
-    port: /dev/ttyACM0
+    port: /dev/ttyACM1
     baud: 115200
     piston_at_target_threshold_mm: 0.1
     telemetry_timeout_sec: 1.0
