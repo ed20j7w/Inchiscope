@@ -1,0 +1,10 @@
+string pba_id             # proximal | distal
+float32 arc_length_mm
+float32 bend_angle_rad
+float32 bend_plane_rad
+---
+bool success
+float32[3] final_piston_lengths_mm
+string message
+---
+float32[3] current_piston_lengths_mm

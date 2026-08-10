@@ -1,0 +1,9 @@
+string ab_id
+float32 target_diameter_mm
+---
+bool success
+float32 final_pressure_kpa
+string message
+---
+float32 current_pressure_kpa
+float32 elapsed_sec

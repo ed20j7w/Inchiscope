@@ -1,0 +1,19 @@
+# colcon / ROS2
+build/
+install/
+log/
+
+# PlatformIO
+firmware/**/.pio/
+firmware/**/.vscode/
+
+# Proprietary vendor SDKs (not redistributable -- see inchiscope_aurora docstring)
+third_party/
+
+# Python
+__pycache__/
+*.pyc
+
+# rosbag2 output
+*_bag/
+rosbag2_*/

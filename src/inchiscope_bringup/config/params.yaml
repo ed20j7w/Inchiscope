@@ -1,0 +1,48 @@
+# Inchiscope stack parameters.
+#
+# Values marked PLACEHOLDER need bench calibration / the paper's characterisation
+# data before they can be trusted; they exist so nodes have a param to declare
+# against, not as validated numbers.
+
+serial_bridge_node:
+  ros__parameters:
+    port: /dev/ttyACM0
+    baud: 115200
+    piston_at_target_threshold_mm: 0.1
+    telemetry_timeout_sec: 1.0
+
+pba_control_node:
+  ros__parameters:
+    # Bellows polynomial coefficients from the original firmware main.cpp
+    # (length_mm = a*p^3 + b*p^2 + c*p + d, p = piston length mm). Carried
+    # over as-is; PLACEHOLDER pending re-fit once the CC model is ported.
+    bellows_poly_a: -3.11672313e-04
+    bellows_poly_b: 3.15655556e-02
+    bellows_poly_c: -6.15190111e-01
+    bellows_poly_d: 8.81574747e+00
+    min_piston_length_mm: 10.0
+    max_piston_length_mm: 60.0
+    chamber_radius_mm: 2.5
+
+ab_control_node:
+  ros__parameters:
+    # PLACEHOLDER hard ceilings -- derive real values from the anchoring-force
+    # characterisation in the paper (section III-A) before running on hardware.
+    pressure_ceiling_kpa:
+      proximal: 100.0
+      central: 100.0
+      distal: 100.0
+
+aurora_tracker_node:
+  ros__parameters:
+    srom_path: ""  # path to the generated virtual SROM; empty until the SDK binding lands
+    field_generator_port: /dev/ttyUSB0
+    publish_rate_hz: 40.0
+
+camera_node:
+  ros__parameters:
+    device: /dev/video0
+    width: 640
+    height: 480
+    fps: 30.0
+    frame_id: naneye_camera
