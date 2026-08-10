@@ -157,16 +157,15 @@ private:
   }
 
   // Discovers both tools (PHSR auto-assigns handles to both, chip or not)
-  // and tells them apart by whether PHINF reports a real serial number:
-  // the reference tool's onboard chip is readable as soon as it's
-  // detected, while the bare sensor coil has never had a definition
-  // assigned, so it comes back empty. (Confirmed from CombinedApi.cpp:
-  // portHandleInfo() collapses both "ERROR" and "UNOCCUPIED" replies to an
-  // empty PortHandleInfo, so an empty serial number is a safe signal
-  // either way -- we don't need to know which one Aurora actually
-  // returns.) The chipless one gets its virtual SROM uploaded (PVWR) here,
-  // before either port is PINIT'd -- PVWR must happen before PINIT for a
-  // tool with no onboard SROM (API guide, PINIT usage note 1).
+  // and tells them apart by trying PINIT on each: PINIT is what actually
+  // reads the onboard chip, so a chipless port with nothing PVWR'd yet has
+  // nothing to initialize from and fails. (PHINF can't be used for this --
+  // confirmed on real hardware that both ports report identical all-zero
+  // placeholder fields, Tool Type/serial number included, until PINIT has
+  // actually run on them; the chip isn't read any earlier than that.)
+  // Whichever port fails gets the sensor's virtual SROM uploaded (PVWR)
+  // and is initialized again -- PVWR must happen before PINIT for a tool
+  // with no onboard SROM (API guide, PINIT usage note 1).
   //
   // This also sidesteps a real gap in the vendor C++ wrapper: PHINF's
   // "Main Type" field (which would directly say "Reference") and its
@@ -182,28 +181,40 @@ private:
     reference_port_handle_ = -1;
 
     for (const auto & info : handles) {
-      const int handle = capi_.stringToInt(info.getPortHandle());
-      const PortHandleInfo detail = capi_.portHandleInfo(info.getPortHandle());
+      const std::string handle_str = info.getPortHandle();
+      const int handle = capi_.stringToInt(handle_str);
 
-      if (detail.getSerialNumber().empty()) {
-        if (sensor_port_handle_ >= 0) {
-          RCLCPP_WARN(
-            get_logger(),
-            "Multiple chipless ports found; using port %d as the sensor, "
-            "ignoring port %d", sensor_port_handle_, handle);
-          continue;
-        }
-        sensor_port_handle_ = handle;
-      } else {
+      if (capi_.portHandleInitialize(handle_str) == 0) {
         if (reference_port_handle_ >= 0) {
           RCLCPP_WARN(
             get_logger(),
-            "Multiple tools with chip data found; using port %d as the "
-            "reference, ignoring port %d", reference_port_handle_, handle);
+            "Multiple tools initialized from onboard chip data; using "
+            "port %d as the reference, ignoring port %d",
+            reference_port_handle_, handle);
           continue;
         }
         reference_port_handle_ = handle;
+        continue;
       }
+
+      // PINIT failed -- no chip and nothing PVWR'd yet, so this must be
+      // our sensor. Upload its virtual SROM and initialize again.
+      if (sensor_port_handle_ >= 0) {
+        RCLCPP_WARN(
+          get_logger(),
+          "Multiple chipless ports found; using port %d as the sensor, "
+          "ignoring port %d", sensor_port_handle_, handle);
+        continue;
+      }
+      capi_.loadSromToPort(sensor_srom, handle);
+      if (capi_.portHandleInitialize(handle_str) != 0) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Failed to initialize port %d even after loading its virtual "
+          "SROM -- will retry", handle);
+        continue;
+      }
+      sensor_port_handle_ = handle;
     }
 
     if (sensor_port_handle_ < 0 || reference_port_handle_ < 0) {
@@ -216,7 +227,6 @@ private:
       return false;
     }
 
-    capi_.loadSromToPort(sensor_srom, sensor_port_handle_);
     return true;
   }
 
@@ -235,10 +245,13 @@ private:
   // API guide Figure 2-1, steps 2-3: PINIT and PENA are each their own
   // loop-until-empty pass, not interleaved -- initializing one port handle
   // can cause a new one to appear (the guide's example: the second channel
-  // of a dual-5DOF tool), so a single combined pass could miss it. Covers
-  // both the sensor's port (now holding the virtual SROM we just PVWR'd
-  // onto it) and the reference tool's port, which shows up here
-  // automatically once its on-chip SROM is read -- no PVWR needed for it.
+  // of a dual-5DOF tool), so a single combined pass could miss it. Both
+  // tools are already PINIT'd by classifyPortsAndLoadSensor() by the time
+  // this runs, so in the normal case the first loop below finds nothing
+  // and only PENA remains -- it stays here (rather than folded into
+  // classifyPortsAndLoadSensor) to still catch a split-port dual-5DOF
+  // tool's second channel, which only shows up after its sibling is
+  // initialized.
   void initializeAndEnablePorts()
   {
     constexpr int kMaxPasses = 10;
