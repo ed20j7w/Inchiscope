@@ -127,6 +127,8 @@ private:
       return;
     }
 
+    freeStalePorts();
+
     // Both tools are physically wired into SCU ports -- PHRQ (which
     // manufactures a port handle for a tool with no physical connection at
     // all, e.g. an optical passive/wireless marker on Polaris/Vega) doesn't
@@ -197,16 +199,49 @@ private:
     return -1;
   }
 
+  // API guide Figure 2-1, step 1: free any port handles left over from a
+  // previous run (e.g. after a tool was unplugged) before doing anything
+  // else.
+  void freeStalePorts()
+  {
+    const auto to_free =
+      capi_.portHandleSearchRequest(PortHandleSearchRequestOption::PortsToFree);
+    for (const auto & info : to_free) {
+      capi_.portHandleFree(info.getPortHandle());
+    }
+  }
+
+  // API guide Figure 2-1, steps 2-3: PINIT and PENA are each their own
+  // loop-until-empty pass, not interleaved -- initializing one port handle
+  // can cause a new one to appear (the guide's example: the second channel
+  // of a dual-5DOF tool), so a single combined pass could miss it. Covers
+  // both the sensor's port (now holding the virtual SROM we just PVWR'd
+  // onto it) and the reference tool's port, which shows up here
+  // automatically once its on-chip SROM is read -- no PVWR needed for it.
   void initializeAndEnablePorts()
   {
-    // Covers both the sensor's port (now holding the virtual SROM we just
-    // PVWR'd onto it) and the reference tool's port, which shows up here
-    // automatically once its on-chip SROM is read -- no PVWR needed for it.
-    const auto handles =
-      capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
-    for (const auto & info : handles) {
-      capi_.portHandleInitialize(info.getPortHandle());
-      capi_.portHandleEnable(info.getPortHandle());
+    constexpr int kMaxPasses = 10;
+
+    for (int pass = 0; pass < kMaxPasses; ++pass) {
+      const auto not_init =
+        capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
+      if (not_init.empty()) {
+        break;
+      }
+      for (const auto & info : not_init) {
+        capi_.portHandleInitialize(info.getPortHandle());
+      }
+    }
+
+    for (int pass = 0; pass < kMaxPasses; ++pass) {
+      const auto not_enabled =
+        capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotEnabled);
+      if (not_enabled.empty()) {
+        break;
+      }
+      for (const auto & info : not_enabled) {
+        capi_.portHandleEnable(info.getPortHandle());
+      }
     }
   }
 
