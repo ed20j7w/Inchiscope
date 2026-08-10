@@ -127,16 +127,25 @@ private:
       return;
     }
 
-    // The reference tool's SROM is on its own physical chip -- it's
-    // auto-detected by the port handle search below, no PVWR needed. Only
-    // the bare sensor coil (no chip of its own) needs its virtual SROM
-    // uploaded explicitly.
+    // Both tools are physically wired into SCU ports -- PHRQ (which
+    // manufactures a port handle for a tool with no physical connection at
+    // all, e.g. an optical passive/wireless marker on Polaris/Vega) doesn't
+    // apply here and this firmware rejects it outright. Both the reference
+    // port and the sensor's port show up on their own via a port search;
+    // the only difference is the sensor's port has no onboard chip, so we
+    // PVWR its virtual SROM onto the discovered-but-empty handle before
+    // initializing it.
     const std::string sensor_port_number = get_parameter("sensor_port_number").as_string();
-    sensor_port_handle_ = loadTool(sensor_srom, sensor_port_number);
+    sensor_port_handle_ = findPortHandleByNumber(sensor_port_number);
     if (sensor_port_handle_ < 0) {
-      RCLCPP_ERROR(get_logger(), "Failed to load the sensor .rom file, will retry");
+      RCLCPP_ERROR(
+        get_logger(),
+        "No port handle found for sensor_port_number '%s' -- check the "
+        "sensor is plugged into that SCU port, will retry",
+        sensor_port_number.c_str());
       return;
     }
+    capi_.loadSromToPort(sensor_srom, sensor_port_handle_);
 
     initializeAndEnablePorts();
 
@@ -166,37 +175,33 @@ private:
       std::bind(&AuroraTrackerNode::pollAndPublish, this));
   }
 
-  // Requests a port handle and loads the given .rom file onto it -- this is
-  // the same mechanism NDI calls "PVWR" whether the file is a physical
-  // tool's factory-supplied .rom or a virtual SROM generated for a bare
-  // sensor coil; the API makes no distinction once you have a file.
-  //
-  // Aurora sensors are wired EM coils plugged into a specific SCU port --
-  // NOT "wireless" tools in the CAPI sense (that term covers Polaris/Vega
-  // passive/active-wireless markers). portHandleRequest()'s defaults
-  // (toolType="1" Wireless, portNumber="00") are wrong for Aurora and get
-  // rejected outright ("ERROR01 Invalid command"); wired tools need
-  // toolType="0" and the actual physical port number the sensor is
-  // connected to.
-  int loadTool(const std::string & romPath, const std::string & portNumber)
+  // Finds the not-yet-initialized port handle matching a given physical SCU
+  // port number (e.g. "02"). Both the reference tool and the sensor coil
+  // are physically wired in, so both show up here without needing PHRQ --
+  // this firmware rejects PHRQ outright regardless of its arguments (it's
+  // meant for tools with no physical connection at all, e.g. Polaris/Vega
+  // passive/active-wireless markers, which doesn't describe an Aurora
+  // sensor). PortHandleInfo doesn't expose a distinct "physical port"
+  // field, but for Aurora the port handle value returned by PHSR is itself
+  // the physical port number.
+  int findPortHandleByNumber(const std::string & portNumber)
   {
-    const int portHandle = capi_.portHandleRequest(
-      "********", "*", /*toolType=*/"0", portNumber, /*dummyTool=*/"**");
-    if (portHandle < 0) {
-      RCLCPP_ERROR(
-        get_logger(), "portHandleRequest() failed for '%s' on port %s: %s",
-        romPath.c_str(), portNumber.c_str(), CombinedApi::errorToString(portHandle).c_str());
-      return portHandle;
+    const auto handles =
+      capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
+    const int wanted = capi_.stringToInt(portNumber);
+    for (const auto & info : handles) {
+      if (capi_.stringToInt(info.getPortHandle()) == wanted) {
+        return wanted;
+      }
     }
-    capi_.loadSromToPort(romPath, portHandle);
-    return portHandle;
+    return -1;
   }
 
   void initializeAndEnablePorts()
   {
-    // Covers both the sensor's just-created port handle and the reference
-    // tool's port handle, which shows up here automatically once its
-    // on-chip SROM is read -- no PVWR needed for it.
+    // Covers both the sensor's port (now holding the virtual SROM we just
+    // PVWR'd onto it) and the reference tool's port, which shows up here
+    // automatically once its on-chip SROM is read -- no PVWR needed for it.
     const auto handles =
       capi_.portHandleSearchRequest(PortHandleSearchRequestOption::NotInit);
     for (const auto & info : handles) {
