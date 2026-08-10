@@ -60,6 +60,7 @@ public:
   {
     declare_parameter("field_generator_port", "/dev/ttyUSB0");
     declare_parameter("sensor_srom_path", "");
+    declare_parameter("sensor_port_number", "02");
     declare_parameter("publish_rate_hz", 40.0);
     declare_parameter("reconnect_period_sec", 5.0);
     declare_parameter("field_frame_id", "aurora_field");
@@ -130,7 +131,8 @@ private:
     // auto-detected by the port handle search below, no PVWR needed. Only
     // the bare sensor coil (no chip of its own) needs its virtual SROM
     // uploaded explicitly.
-    sensor_port_handle_ = loadTool(sensor_srom);
+    const std::string sensor_port_number = get_parameter("sensor_port_number").as_string();
+    sensor_port_handle_ = loadTool(sensor_srom, sensor_port_number);
     if (sensor_port_handle_ < 0) {
       RCLCPP_ERROR(get_logger(), "Failed to load the sensor .rom file, will retry");
       return;
@@ -168,13 +170,22 @@ private:
   // the same mechanism NDI calls "PVWR" whether the file is a physical
   // tool's factory-supplied .rom or a virtual SROM generated for a bare
   // sensor coil; the API makes no distinction once you have a file.
-  int loadTool(const std::string & romPath)
+  //
+  // Aurora sensors are wired EM coils plugged into a specific SCU port --
+  // NOT "wireless" tools in the CAPI sense (that term covers Polaris/Vega
+  // passive/active-wireless markers). portHandleRequest()'s defaults
+  // (toolType="1" Wireless, portNumber="00") are wrong for Aurora and get
+  // rejected outright ("ERROR01 Invalid command"); wired tools need
+  // toolType="0" and the actual physical port number the sensor is
+  // connected to.
+  int loadTool(const std::string & romPath, const std::string & portNumber)
   {
-    const int portHandle = capi_.portHandleRequest();
+    const int portHandle = capi_.portHandleRequest(
+      "********", "*", /*toolType=*/"0", portNumber, /*dummyTool=*/"**");
     if (portHandle < 0) {
       RCLCPP_ERROR(
-        get_logger(), "portHandleRequest() failed for '%s': %s",
-        romPath.c_str(), CombinedApi::errorToString(portHandle).c_str());
+        get_logger(), "portHandleRequest() failed for '%s' on port %s: %s",
+        romPath.c_str(), portNumber.c_str(), CombinedApi::errorToString(portHandle).c_str());
       return portHandle;
     }
     capi_.loadSromToPort(romPath, portHandle);

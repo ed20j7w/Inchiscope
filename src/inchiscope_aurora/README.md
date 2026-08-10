@@ -6,12 +6,21 @@ tools' pose:
 
 - **reference** -- its SROM is on its own physical chip, so it's
   auto-detected once the node connects: no `.rom` file or path needed for
-  it at all.
+  it at all. Bench wiring: SCU port 1.
 - **sensor_0** -- the 6D sensor mounted at the endoscope tip, identified by
   a **virtual SROM**: a tool definition file uploaded over the wire instead
   of read from a physical connector chip, since the bare sensor coil has no
   onboard SROM chip of its own. NDI (or whoever characterised your coil)
-  will have given you this as a `.rom` file.
+  will have given you this as a `.rom` file. Bench wiring: SCU port 2 (set
+  via `sensor_port_number`, default `"02"`).
+
+Aurora sensors are wired EM coils, not "wireless" tools in the CAPI sense
+(that term means Polaris/Vega passive/active-wireless markers) -- both
+tools need `toolType="0"` (Wired) and their actual physical port number, or
+Aurora rejects the request outright (`ERROR01 Invalid command`). The
+reference is discovered automatically at whatever port it's plugged into;
+the sensor's port has to be told to the node explicitly since we're the
+ones requesting a port handle for its virtual SROM upload (`PVWR`).
 
 Topics: `/aurora/reference/pose`, `/aurora/sensor_0/pose`
 (`geometry_msgs/msg/PoseStamped`, in the `aurora_field` frame by default),
@@ -52,11 +61,12 @@ aurora_tracker_node:
   ros__parameters:
     field_generator_port: /dev/ttyUSB0
     sensor_srom_path: /path/to/distal_sensor_virtual.rom
+    sensor_port_number: "02"  # whichever SCU port the sensor is wired into
 ```
 
-The node refuses to connect (and logs why, throttled) until this path is
-set and readable. Nothing needs setting for the reference tool -- it's
-found automatically once connected.
+The node refuses to connect (and logs why, throttled) until `sensor_srom_path`
+is set and readable. Nothing needs setting for the reference tool -- it's
+found automatically once connected, wherever it's plugged in.
 
 ## 3. Run it
 
