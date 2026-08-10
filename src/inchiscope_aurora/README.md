@@ -23,9 +23,21 @@ has chip data (the reference) or not (the sensor, which then gets its
 virtual SROM uploaded onto that handle) -- so it doesn't matter which
 physical port either tool is wired into.
 
-Topics: `/aurora/reference/pose`, `/aurora/sensor_0/pose`
-(`geometry_msgs/msg/PoseStamped`, in the `aurora_field` frame by default),
-plus matching tf2 transforms.
+Topics (all `geometry_msgs/msg/PoseStamped`):
+
+- `/aurora/reference/pose`, `/aurora/sensor_0/pose` -- raw poses in the
+  field generator's own frame (`aurora_field` by default), plus matching
+  tf2 transforms.
+- `/aurora/sensor_0/pose_relative_to_reference` -- the sensor's pose
+  composed into the reference tool's frame
+  (`T_reference_to_sensor = T_field_to_reference⁻¹ · T_field_to_sensor`),
+  published in `reference_frame_id` (`aurora_reference` by default). Since
+  the reference sits flat on the table, this is effectively the sensor's
+  pose in a bench-fixed world frame -- this is the one to record for
+  reconstruction, since it cancels out the field generator's arbitrary
+  internal frame (and any small reference-tool drift) without downstream
+  consumers needing to redo a tf lookup themselves. Only published when
+  both tools are in view this cycle (skipped if either is missing).
 
 ## 1. Get the vendor SDK
 
@@ -82,11 +94,5 @@ launch before the Aurora unit is powered on.
 
 - Uses the classic binary `BX` command, not `BX2` -- Aurora doesn't support
   `BX2` (Vega/Polaris-only), so this is the correct choice.
-- Publishes each tool's raw pose in the field generator's frame. It does
-  **not** compute a reference-compensated pose (sensor pose expressed
-  relative to the moving reference tool, i.e.
-  `reference_pose.inverse() * sensor_pose`) -- that's a straightforward
-  follow-up if you need pose stable against patient/field-generator motion,
-  but nothing currently computes it.
 - No TLS/DTLS support (not needed for a local serial connection to Aurora,
   and not built -- see the CMakeLists.txt comment on `TlsConnection.cpp`).

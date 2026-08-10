@@ -7,18 +7,36 @@ action servers just abort goals with an explanatory message until that
 logic lands. camera_node is functional as soon as a capture-card device is
 present, and aurora_tracker_node is functional given the vendor SDK and
 .rom files it needs -- see inchiscope_aurora/README.md.
+
+Launch arguments:
+    use_rviz (default false): also start RViz. Off by default here since a
+        full-stack launch shouldn't always pop a GUI; see aurora.launch.py
+        for a bench-test launch with it on by default.
+    rviz_config (default: rviz/aurora.rviz in this package's share dir).
 """
 
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    params_file = os.path.join(
-        get_package_share_directory('inchiscope_bringup'), 'config', 'params.yaml'
+    bringup_share = get_package_share_directory('inchiscope_bringup')
+    params_file = os.path.join(bringup_share, 'config', 'params.yaml')
+    default_rviz_config = os.path.join(bringup_share, 'rviz', 'aurora.rviz')
+
+    use_rviz_arg = DeclareLaunchArgument(
+        'use_rviz', default_value='false',
+        description='Start RViz alongside the rest of the stack.',
+    )
+    rviz_config_arg = DeclareLaunchArgument(
+        'rviz_config', default_value=default_rviz_config,
+        description='RViz config file to open (need not exist yet).',
     )
 
     nodes = [
@@ -31,12 +49,24 @@ def generate_launch_description():
     ]
 
     return LaunchDescription([
+        use_rviz_arg,
+        rviz_config_arg,
+        *[
+            Node(
+                package=package,
+                executable=executable,
+                name=executable,
+                output='screen',
+                parameters=[params_file],
+            )
+            for package, executable in nodes
+        ],
         Node(
-            package=package,
-            executable=executable,
-            name=executable,
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
             output='screen',
-            parameters=[params_file],
-        )
-        for package, executable in nodes
+            arguments=['-d', LaunchConfiguration('rviz_config')],
+            condition=IfCondition(LaunchConfiguration('use_rviz')),
+        ),
     ])

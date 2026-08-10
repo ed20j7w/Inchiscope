@@ -8,6 +8,9 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "tf2/LinearMath/Quaternion.h"
+#include "tf2/LinearMath/Transform.h"
+#include "tf2/LinearMath/Vector3.h"
 #include "tf2_ros/transform_broadcaster.h"
 
 // CombinedApi.h declares warningStrings/errorStrings as file-scope statics;
@@ -73,6 +76,13 @@ public:
       "/aurora/reference/pose", 10);
     sensor_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
       "/aurora/sensor_0/pose", 10);
+    // The reference tool sits flat on the table, so its frame is effectively
+    // world/bench-fixed. This is the pose the reconstruction pipeline should
+    // consume from the rosbag -- it cancels out the field generator's
+    // arbitrary internal frame (and any reference-tool drift) rather than
+    // requiring every downstream consumer to redo the tf lookup themselves.
+    sensor_relative_pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(
+      "/aurora/sensor_0/pose_relative_to_reference", 10);
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
     const double reconnect_period = get_parameter("reconnect_period_sec").as_double();
@@ -286,13 +296,63 @@ private:
     const std::vector<ToolData> tools = capi_.getTrackingDataBX();
     const rclcpp::Time stamp = now();
 
+    const ToolData * reference_tool = nullptr;
+    const ToolData * sensor_tool = nullptr;
+
     for (const auto & tool : tools) {
       if (tool.transform.toolHandle == static_cast<uint16_t>(reference_port_handle_)) {
+        reference_tool = &tool;
         publishToolPose(tool, reference_frame_id_, *reference_pose_pub_, stamp);
       } else if (tool.transform.toolHandle == static_cast<uint16_t>(sensor_port_handle_)) {
+        sensor_tool = &tool;
         publishToolPose(tool, sensor_frame_id_, *sensor_pose_pub_, stamp);
       }
     }
+
+    if (reference_tool && sensor_tool &&
+      !reference_tool->transform.isMissing() && !sensor_tool->transform.isMissing())
+    {
+      publishSensorRelativeToReference(*reference_tool, *sensor_tool, stamp);
+    }
+  }
+
+  static tf2::Transform toTf2Transform(const Transform & t)
+  {
+    return tf2::Transform(
+      tf2::Quaternion(t.qx, t.qy, t.qz, t.q0),
+      tf2::Vector3(t.tx * kMmToM, t.ty * kMmToM, t.tz * kMmToM));
+  }
+
+  // The reference tool sits flat on the table -- treat it as the world
+  // frame and express the sensor's pose relative to it, cancelling out the
+  // field generator's arbitrary internal frame (and any reference-tool
+  // drift): T_reference_to_sensor = T_field_to_reference^-1 * T_field_to_sensor.
+  // Composed directly from this poll's two transforms (both already in the
+  // shared aurora_field frame) rather than via a tf2 buffer/listener
+  // round-trip, since both are already on hand here.
+  void publishSensorRelativeToReference(
+    const ToolData & reference_tool, const ToolData & sensor_tool, const rclcpp::Time & stamp)
+  {
+    const tf2::Transform field_to_reference = toTf2Transform(reference_tool.transform);
+    const tf2::Transform field_to_sensor = toTf2Transform(sensor_tool.transform);
+    const tf2::Transform reference_to_sensor = field_to_reference.inverse() * field_to_sensor;
+
+    geometry_msgs::msg::PoseStamped pose;
+    pose.header.stamp = stamp;
+    pose.header.frame_id = reference_frame_id_;
+
+    const tf2::Vector3 & origin = reference_to_sensor.getOrigin();
+    pose.pose.position.x = origin.x();
+    pose.pose.position.y = origin.y();
+    pose.pose.position.z = origin.z();
+
+    const tf2::Quaternion rotation = reference_to_sensor.getRotation();
+    pose.pose.orientation.x = rotation.x();
+    pose.pose.orientation.y = rotation.y();
+    pose.pose.orientation.z = rotation.z();
+    pose.pose.orientation.w = rotation.w();
+
+    sensor_relative_pose_pub_->publish(pose);
   }
 
   void publishToolPose(
@@ -339,6 +399,7 @@ private:
 
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr reference_pose_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr sensor_pose_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr sensor_relative_pose_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr reconnect_timer_;
   rclcpp::TimerBase::SharedPtr poll_timer_;

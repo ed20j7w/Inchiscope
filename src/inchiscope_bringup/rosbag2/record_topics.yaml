@@ -5,5 +5,6 @@
 # calls out keeping the bag to what's needed for offline 3D reconstruction.
 topics:
   - /camera/image_raw
-  - /aurora/sensor_0/pose
+  - /aurora/sensor_0/pose_relative_to_reference  # world-frame sensor pose for reconstruction
+  - /aurora/reference/pose                       # raw reference pose, for sanity-checking it didn't move
   - /inchiscope/state

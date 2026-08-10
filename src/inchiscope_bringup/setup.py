@@ -15,6 +15,10 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'rosbag2'), glob('rosbag2/*.yaml')),
+        (
+            os.path.join('share', package_name, 'rviz'),
+            glob('rviz/*.rviz') + ['rviz/README.md'],
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

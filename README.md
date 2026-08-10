@@ -71,3 +71,14 @@ ros2 launch inchiscope_bringup phase1_bridge.launch.py
 ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
 ros2 topic echo /firmware/piston_state
 ```
+
+## Bench-test Aurora (Phase 4)
+
+```bash
+ros2 launch inchiscope_bringup aurora.launch.py   # starts aurora_tracker_node + RViz (use_rviz:=false to skip)
+ros2 topic echo /aurora/sensor_0/pose_relative_to_reference
+```
+
+See `src/inchiscope_aurora/README.md` for the vendor SDK / `.rom` file
+setup this needs first, and `src/inchiscope_bringup/rviz/README.md` for
+saving an RViz config so it reopens configured next time.

@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -59,7 +60,7 @@ else()
   # -Wextra on the same compile line wins for GCC/Clang.
   set_source_files_properties(${NDI_CAPI_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 
-  ament_target_dependencies(aurora_tracker_node rclcpp geometry_msgs tf2_ros)
+  ament_target_dependencies(aurora_tracker_node rclcpp geometry_msgs tf2 tf2_ros)
   target_link_libraries(aurora_tracker_node Threads::Threads)
 
   install(TARGETS aurora_tracker_node
