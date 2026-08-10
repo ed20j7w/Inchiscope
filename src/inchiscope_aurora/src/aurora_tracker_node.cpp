@@ -10,7 +10,19 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/transform_broadcaster.h"
 
+// CombinedApi.h declares warningStrings/errorStrings as file-scope statics;
+// any translation unit that includes it without using them directly (like
+// this one) trips -Wunused-variable under -Wextra. That's a vendor header
+// quirk, not a bug in our code, so scope the suppression to just this
+// include rather than disabling the warning for the whole file.
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#endif
 #include "CombinedApi.h"
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #include "PortHandleInfo.h"
 #include "ToolData.h"
 

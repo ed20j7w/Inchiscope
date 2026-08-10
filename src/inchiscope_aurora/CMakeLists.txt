@@ -51,6 +51,14 @@ else()
     "${NDI_COMBINED_API_DIR}/library/include"
     "${NDI_COMBINED_API_DIR}/library/src/include"
   )
+
+  # The vendor sources are pre-existing third-party code we don't maintain --
+  # our -Wall -Wextra is directory-scoped so it lands on them too by default,
+  # which is just noise for code we're not going to change. Silence warnings
+  # there instead of on aurora_tracker_node.cpp; -w appended after -Wall
+  # -Wextra on the same compile line wins for GCC/Clang.
+  set_source_files_properties(${NDI_CAPI_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+
   ament_target_dependencies(aurora_tracker_node rclcpp geometry_msgs tf2_ros)
   target_link_libraries(aurora_tracker_node Threads::Threads)
 
