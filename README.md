@@ -58,27 +58,75 @@ intended build order.
 ```bash
 # firmware
 cd firmware/inchiscope_mega && pio run -t upload
+```
 
-# ROS2 workspace
-colcon build --symlink-install
+ROS2 workspace build commands are in the command reference below.
+
+## Command reference
+
+Running log of the commands actually used to build/run/debug this stack --
+added to as new ones come up, so it doubles as a working history rather
+than a one-time cheat sheet.
+
+### Build
+
+```bash
+colcon build --symlink-install              # normal dev build -- edits to yaml/launch files take
+                                             # effect without rebuilding
+colcon build --packages-select <pkg_name>   # rebuild just one package
+```
+
+If colcon fails with `Failed to create symbolic link '...' because
+existing path cannot be removed: Is a directory` -- stale build artifacts,
+typically from a package's build type changing (e.g. ament_python ->
+ament_cmake) or mixing symlink/non-symlink builds:
+
+```bash
+rm -rf build/<pkg_name> install/<pkg_name>  # targeted clean, try this first
+rm -rf build install log                    # full clean, if targeted doesn't fix it
+```
+
+`inchiscope_aurora` needs the vendor SDK at
+`third_party/ndi_combined_api/CombinedAPIsample/` (repo root, sibling of
+`src/`, gitignored); if you keep it elsewhere:
+
+```bash
+colcon build --packages-select inchiscope_aurora \
+  --cmake-args -DNDI_COMBINED_API_DIR=/path/to/CombinedAPIsample
+```
+
+### Source
+
+```bash
 source install/setup.bash
 ```
 
-## Bench-test phase 1
+### Launch
 
 ```bash
-ros2 launch inchiscope_bringup phase1_bridge.launch.py
-ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
+ros2 launch inchiscope_bringup phase1_bridge.launch.py   # firmware + serial bridge only
+ros2 launch inchiscope_bringup aurora.launch.py          # Aurora tracker + RViz (use_rviz:=false to skip)
+ros2 launch inchiscope_bringup inchiscope.launch.py      # full stack (use_rviz:=true to also open RViz)
+```
+
+### Run a single node directly
+
+```bash
+ros2 run inchiscope_serial_bridge serial_bridge_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
+ros2 run inchiscope_aurora aurora_tracker_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
+```
+
+### Inspect topics / tf
+
+```bash
+ros2 topic list
 ros2 topic echo /firmware/piston_state
-```
-
-## Bench-test Aurora (Phase 4)
-
-```bash
-ros2 launch inchiscope_bringup aurora.launch.py   # starts aurora_tracker_node + RViz (use_rviz:=false to skip)
 ros2 topic echo /aurora/sensor_0/pose_relative_to_reference
+ros2 topic hz /aurora/sensor_0/pose
+ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
+ros2 run tf2_ros tf2_echo aurora_field aurora_reference
 ```
 
-See `src/inchiscope_aurora/README.md` for the vendor SDK / `.rom` file
-setup this needs first, and `src/inchiscope_bringup/rviz/README.md` for
-saving an RViz config so it reopens configured next time.
+See `src/inchiscope_aurora/README.md` for the Aurora vendor SDK / `.rom`
+file setup, and `src/inchiscope_bringup/rviz/README.md` for the saved
+RViz config.
