@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_node = inchiscope_camera.camera_node:main',
+            'camera_viewer_node = inchiscope_camera.camera_viewer_node:main',
         ],
     },
 )

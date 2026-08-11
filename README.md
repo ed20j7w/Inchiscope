@@ -104,9 +104,12 @@ source install/setup.bash
 ### Launch
 
 ```bash
-ros2 launch inchiscope_bringup phase1_bridge.launch.py   # firmware + serial bridge only
-ros2 launch inchiscope_bringup aurora.launch.py          # Aurora tracker + RViz (use_rviz:=false to skip)
-ros2 launch inchiscope_bringup inchiscope.launch.py      # full stack (use_rviz:=true to also open RViz)
+ros2 launch inchiscope_bringup phase1_bridge.launch.py       # firmware + serial bridge only
+ros2 launch inchiscope_bringup aurora.launch.py              # Aurora tracker + RViz (use_rviz:=false to skip)
+ros2 launch inchiscope_bringup camera.launch.py              # camera + cv2 viewer (show_viewer:=false to skip)
+ros2 launch inchiscope_bringup camera_and_aurora.launch.py   # camera + viewer + Aurora tracker + RViz together
+ros2 launch inchiscope_bringup inchiscope.launch.py          # full stack (use_rviz:=true to also open RViz)
+ros2 launch inchiscope_bringup record.launch.py              # rosbag2 record of the topics in rosbag2/record_topics.yaml
 ```
 
 ### Run a single node directly
@@ -114,6 +117,8 @@ ros2 launch inchiscope_bringup inchiscope.launch.py      # full stack (use_rviz:
 ```bash
 ros2 run inchiscope_serial_bridge serial_bridge_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
 ros2 run inchiscope_aurora aurora_tracker_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
+ros2 run inchiscope_camera camera_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
+ros2 run inchiscope_camera camera_viewer_node
 ```
 
 ### Inspect topics / tf
@@ -123,10 +128,11 @@ ros2 topic list
 ros2 topic echo /firmware/piston_state
 ros2 topic echo /aurora/sensor_0/pose_relative_to_reference
 ros2 topic hz /aurora/sensor_0/pose
+ros2 topic hz /camera/image_raw
 ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
 ros2 run tf2_ros tf2_echo aurora_field aurora_reference
 ```
 
 See `src/inchiscope_aurora/README.md` for the Aurora vendor SDK / `.rom`
-file setup, and `src/inchiscope_bringup/rviz/README.md` for the saved
-RViz config.
+file setup, `src/inchiscope_camera/README.md` for the camera viewer, and
+`src/inchiscope_bringup/rviz/README.md` for the saved RViz config.
