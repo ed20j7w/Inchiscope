@@ -46,7 +46,10 @@ aurora_tracker_node:
 camera_node:
   ros__parameters:
     device: /dev/video0
-    width: 640
-    height: 480
+    # 0 = use the capture card's native resolution (check the node's log
+    # line "Capture resolution: WxH" on startup). Only set both to a real
+    # value if you specifically want to force a different mode.
+    width: 0
+    height: 0
     fps: 30.0
     frame_id: naneye_camera

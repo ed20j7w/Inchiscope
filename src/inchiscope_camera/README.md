@@ -2,7 +2,14 @@
 
 - `camera_node` -- captures the NanEye feed off the capture card (plain
   V4L2/UVC device, no vendor SDK needed) and publishes it on
-  `/camera/image_raw`.
+  `/camera/image_raw`. `width`/`height` default to `0`, meaning "use
+  whatever resolution the capture card reports natively" -- check the
+  node's startup log line (`Capture resolution: WxH`) to see what that is.
+  Only set both to a real value in `params.yaml` if you specifically want
+  to force a different mode; forcing a mismatched one (e.g. requesting 4:3
+  against a 16:9 device) makes the V4L2 driver silently stretch/crop
+  non-uniformly rather than reject the request, which shows up as a
+  squashed-looking image.
 - `camera_viewer_node` -- subscribes to `/camera/image_raw` and shows it
   in a `cv2.imshow` window. Deliberately a separate node from `camera_node`
   (which never opens a GUI itself) so it can be skipped on a headless

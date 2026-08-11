@@ -20,8 +20,14 @@ class CameraNode(Node):
         super().__init__('camera_node')
 
         self.declare_parameter('device', '/dev/video0')
-        self.declare_parameter('width', 640)
-        self.declare_parameter('height', 480)
+        # 0 means "don't override -- use whatever resolution the capture
+        # card reports natively". Forcing a mismatched resolution (e.g. the
+        # old 640x480/4:3 default against a 16:9 device) makes the V4L2
+        # driver stretch/crop non-uniformly rather than reject the request,
+        # which is silent and easy to miss until you notice the image looks
+        # squashed.
+        self.declare_parameter('width', 0)
+        self.declare_parameter('height', 0)
         self.declare_parameter('fps', 30.0)
         self.declare_parameter('frame_id', 'naneye_camera')
 
@@ -35,10 +41,17 @@ class CameraNode(Node):
         self._image_pub = self.create_publisher(Image, '/camera/image_raw', 10)
 
         self._capture = cv2.VideoCapture(device)
-        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if width > 0 and height > 0:
+            self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not self._capture.isOpened():
             self.get_logger().error(f'Failed to open capture device {device}')
+        else:
+            actual_width = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            self.get_logger().info(
+                f'Capture resolution: {actual_width}x{actual_height}'
+            )
 
         self._timer = self.create_timer(1.0 / fps, self._grab_and_publish)
 
