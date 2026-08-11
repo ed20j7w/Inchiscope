@@ -109,7 +109,7 @@ ros2 launch inchiscope_bringup aurora.launch.py              # Aurora tracker + 
 ros2 launch inchiscope_bringup camera.launch.py              # camera + cv2 viewer (show_viewer:=false to skip)
 ros2 launch inchiscope_bringup camera_and_aurora.launch.py   # camera + viewer + Aurora tracker + RViz together
 ros2 launch inchiscope_bringup inchiscope.launch.py          # full stack (use_rviz:=true to also open RViz)
-ros2 launch inchiscope_bringup record.launch.py              # rosbag2 record of the topics in rosbag2/record_topics.yaml
+ros2 launch inchiscope_bringup record.launch.py              # rosbag2 record -> ./inchiscope_bag_<timestamp>/ (bag_name:=... to override)
 ```
 
 ### Run a single node directly
