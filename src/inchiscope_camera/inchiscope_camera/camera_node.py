@@ -20,18 +20,24 @@ class CameraNode(Node):
         super().__init__('camera_node')
 
         self.declare_parameter('device', '/dev/video0')
-        # 0 means "don't override -- use whatever resolution the capture
-        # card reports natively". Forcing a mismatched resolution (e.g. the
-        # old 640x480/4:3 default against a 16:9 device) makes the V4L2
-        # driver stretch/crop non-uniformly rather than reject the request,
-        # which is silent and easy to miss until you notice the image looks
-        # squashed.
-        self.declare_parameter('width', 0)
-        self.declare_parameter('height', 0)
+        # Without an explicit FOURCC, V4L2 falls back to YUYV, which on this
+        # capture card (confirmed via `v4l2-ctl -d /dev/video0
+        # --list-formats-ext`) both defaults to a 4:3 800x600 mode and caps
+        # well below 30fps at any 16:9 size. MJPG on this same device
+        # supports both 1280x720 and 1920x1080 at up to 60fps, so there's no
+        # framerate cost to asking for the bigger one.
+        self.declare_parameter('pixel_format', 'MJPG')
+        # 0/0 means "don't override width/height -- use the capture card's
+        # default for whatever pixel_format is set". Only relevant if you
+        # change pixel_format to something this device handles differently;
+        # left here as an escape hatch rather than the norm.
+        self.declare_parameter('width', 1920)
+        self.declare_parameter('height', 1080)
         self.declare_parameter('fps', 30.0)
         self.declare_parameter('frame_id', 'naneye_camera')
 
         device = self.get_parameter('device').value
+        pixel_format = self.get_parameter('pixel_format').value
         width = int(self.get_parameter('width').value)
         height = int(self.get_parameter('height').value)
         fps = float(self.get_parameter('fps').value)
@@ -41,6 +47,8 @@ class CameraNode(Node):
         self._image_pub = self.create_publisher(Image, '/camera/image_raw', 10)
 
         self._capture = cv2.VideoCapture(device)
+        if pixel_format:
+            self._capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*pixel_format))
         if width > 0 and height > 0:
             self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)

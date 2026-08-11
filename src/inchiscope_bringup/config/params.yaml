@@ -46,10 +46,13 @@ aurora_tracker_node:
 camera_node:
   ros__parameters:
     device: /dev/video0
-    # 0 = use the capture card's native resolution (check the node's log
-    # line "Capture resolution: WxH" on startup). Only set both to a real
-    # value if you specifically want to force a different mode.
-    width: 0
-    height: 0
+    # Confirmed via `v4l2-ctl -d /dev/video0 --list-formats-ext`: MJPG on
+    # this capture card supports both 1280x720 and 1920x1080 at up to
+    # 60fps, so there's no framerate cost to the larger one. The YUYV
+    # fallback (what you get without pixel_format set) both defaults to a
+    # 4:3 800x600 mode and caps out well below 30fps at 16:9 sizes.
+    pixel_format: MJPG
+    width: 1920
+    height: 1080
     fps: 30.0
     frame_id: naneye_camera
