@@ -36,3 +36,19 @@ topic keeps its own message timestamp in one bag file, so a `/camera/image_raw`
 frame and an `/aurora/sensor_0/pose_relative_to_reference` sample can be
 correlated by time during offline reconstruction without needing any
 extra synchronisation machinery at record time.
+
+## Camera calibration
+
+`/camera/camera_info` isn't published yet (see the TODO in
+`camera_node.py`) -- `scripts/` has the standalone tools (checkerboard
+target generator + an OpenCV `calibrateCamera` capture/solve script) to
+determine the intrinsics that TODO needs. See `scripts/README.md`.
+
+Note: `params.yaml` currently requests `1920x1080` from the capture card,
+but if the NanEye sensor's true native resolution is lower (e.g. 400x400),
+that's the capture card upsampling/interpolating, not real extra detail --
+calibrate at whatever resolution `camera_node` actually runs at in
+production, and revisit whether requesting more than the sensor's native
+resolution is worth it (larger files/bandwidth for no real extra
+information, and interpolation can slightly blur the corners/features
+calibration and SIFT both depend on).
