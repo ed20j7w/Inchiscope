@@ -54,8 +54,8 @@ intended build order.
   your bench setup.
 - **Piston homing is required before commanding a piston.** There are no
   limit switches, so firmware rejects `PISTON` targets for any piston that
-  hasn't been sent a `HOME` command yet (blind full-retract, ~2.5s at the
-  default 0-100mm range and 60mm/s default speed -- shorter/longer if you
+  hasn't been sent a `HOME` command yet (blind full-retract, ~15s at the
+  default 0-100mm range and 10mm/s default speed -- shorter/longer if you
   narrow/widen the range via `PISTON_RANGE` or change speed via
   `PISTON_SPEED` first) -- see `src/inchiscope_serial_bridge/README.md`.
 - **AB regulators are an I2C DAC** (DFRobot GP8403 at address `0x5F`,
@@ -64,12 +64,15 @@ intended build order.
   the PC override the default kPa/mm ranges at runtime if the physical
   hardware ever changes.
 - **Piston speed is runtime-settable** (`PISTON_SPEED`, mm/s), default
-  `60mm/s`. The actuators (Actuonix S20-38) are driven full-step only (plain
-  H-bridge, no microstepping driver), so only the full-step segment of the
-  published load curve applies -- see `src/inchiscope_serial_bridge/README.md`
-  for the speed/force tradeoff and a caveat about I2C pressure reads
-  potentially limiting the *actual* achieved speed at the high end,
-  unconfirmed either way on the bench yet.
+  `10mm/s`. **Bench-confirmed: this actuator doesn't move reliably at all
+  from 15mm/s up** (a clean threshold, not gradual degradation) -- the
+  published Actuonix S20-38 full-step load curve alone doesn't explain
+  that, and it isn't caused by I2C blocking from the AB pressure reads
+  (ruled out: those sensors aren't wired on this bench setup, and
+  `readAbPressures()` already skips undetected sensors). Most likely cause,
+  not yet fixed: no acceleration ramp on start -- the datasheet warns full
+  step "will not move" at higher speeds without one. See
+  `src/inchiscope_serial_bridge/README.md`.
 - **`AB_PID` (firmware pressure-hold mode) is untested -- do not use yet.**
   It's implemented (`serviceAbPid()` in `main.cpp`) but has never been run
   against real pneumatics: `AB_PID_KP/KI/KD` are unfit placeholder gains,
@@ -161,11 +164,12 @@ Open items above) -- don't send it yet.
 PING                          # expect: ACK PING
 PISTON d1 45.0                # expect: ERR piston not homed: d1 (not homed yet)
 PISTON_RANGE d1 0 100         # expect: ACK PISTON_RANGE d1 0.000 100.000
-PISTON_SPEED d1 60            # expect: ACK PISTON_SPEED d1 60.000 -- also the current default, so a no-op here
-HOME d1                       # expect: ACK HOME d1, then watch TEL's d1 homed flag flip 0->1 after ~2.5s at 60mm/s
+PISTON_SPEED d1 10            # expect: ACK PISTON_SPEED d1 10.000 -- also the current default, so a no-op here
+HOME d1                       # expect: ACK HOME d1, then watch TEL's d1 homed flag flip 0->1 after ~15s at 10mm/s
 PISTON d1 45.0                # expect: ACK PISTON d1 45.000, now moves
-PISTON_SPEED d1 10            # expect: ACK PISTON_SPEED d1 10.000 -- slower, more force margin
+PISTON_SPEED d1 5             # expect: ACK PISTON_SPEED d1 5.000 -- slower, more force margin
 PISTON d1 20.0                # expect: ACK PISTON d1 20.000, visibly slower than the first move
+# don't go above ~15mm/s -- bench-confirmed the actuator doesn't move reliably at all up there, see Open items
 PISTON_RANGE ALL 10 90        # expect: ACK PISTON_RANGE ALL 10.000 90.000
 HOME ALL                      # expect: ACK HOME ALL, homes every connected piston in parallel
 PISTON d1 5.0                 # expect: ACK PISTON d1 10.000 (clamped to the new min)
@@ -185,7 +189,7 @@ HOME nowhere                  # expect: ERR unknown home target: nowhere
 
 ```bash
 ros2 topic pub -1 /firmware/piston_range_cmd inchiscope_msgs/msg/PistonRangeCommand "{id: d1, min_mm: 0.0, max_mm: 100.0}"  # optional, set range before homing
-ros2 topic pub -1 /firmware/piston_speed_cmd inchiscope_msgs/msg/PistonSpeedCommand "{id: d1, mm_per_s: 60.0}"  # optional, set speed before homing (also default)
+ros2 topic pub -1 /firmware/piston_speed_cmd inchiscope_msgs/msg/PistonSpeedCommand "{id: d1, mm_per_s: 10.0}"  # optional, set speed before homing (also default) -- don't go above ~15mm/s, see Open items
 ros2 topic pub -1 /firmware/home_cmd inchiscope_msgs/msg/HomeCommand "{id: d1}"       # or id: ALL
 ros2 topic echo /firmware/piston_state --once   # check homed: true before commanding
 ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"

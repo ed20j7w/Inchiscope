@@ -30,36 +30,45 @@ lengthens homing -- set the range you want *before* homing, not after.
 
 Settable via `PistonSpeedCommand` on `/firmware/piston_speed_cmd` (`mm_per_s`,
 specific piston or `ALL`), same before-not-after caveat as range: it also
-feeds the next `HOME`'s duration calculation. Default is `60mm/s`.
+feeds the next `HOME`'s duration calculation. Default is `10mm/s`.
 
 The actuators are Actuonix S20-38 linear steppers; firmware drives them via
 a plain H-bridge in a fixed full-step commutation pattern (`stepMotorUp`/
-`stepMotorDown`) -- there's no `STEP`/`DIR`/microstep-select signal, so only
-the full-step portion of the actuator's published load curve is reachable.
-At 640mA that's roughly 55-120mm/s for ~6.5N down to ~1.3N; well below that
-range the curve climbs past 10N (up to ~13-18N near 1mm/s) since running
-slower than the "suggested full-step zone" only costs smoothness, not
-force -- irrelevant here since the EM tracker's closed loop already
-tolerates the odd missed step. `60mm/s` is the low end of that zone, chosen
-to keep force margin rather than maximize speed, per the project's stated
-priority: a missed step is fine, stalling under load (pressure/resistance
-exceeding available force at the current speed) is a fail state. Increase
-it if bench testing shows more margin than needed; decrease it if it
-doesn't.
+`stepMotorDown`) -- there's no `STEP`/`DIR`/microstep-select signal, so in
+principle only the full-step portion of the actuator's published load curve
+is reachable (roughly 55-120mm/s for ~6.5N down to ~1.3N at 640mA).
+
+**Bench-confirmed on real hardware: the actuator doesn't move reliably at
+all from 15mm/s up** -- a clean failure threshold, not gradual degradation,
+so the published load curve doesn't explain this by itself. Two candidate
+explanations were checked:
+
+- **I2C blocking from `readAbPressures()`, ruled out.** That function
+  already skips any pressure sensor not detected at boot
+  (`ab_sensor_connected[i]`), and on this bench setup none of the AB
+  sensors are wired at all, so it isn't touching I2C during these tests.
+- **Missing acceleration ramp, suspected but not yet fixed.** Every
+  `PISTON`/`HOME` move starts stepping immediately at the full commanded
+  rate from a standing start -- there's no ramp-up. The datasheet says
+  outright that full step "will not move" at higher speeds without one,
+  which matches a clean threshold failure much better than a load-curve
+  explanation would (that would predict degraded/skippy motion, not a
+  point where it simply stops working).
+
+`10mm/s` is the current default -- comfortably under the observed failure
+threshold, not chosen from the load curve. Revisit the ramp (or just retest
+the threshold) before trying to push speed back up.
 
 Firmware clamps requested speed to `[MIN_PISTON_SPEED_MM_S,
-MAX_PISTON_SPEED_MM_S]` (0.1-120mm/s, the latter being the datasheet's
-charted ceiling) and converts it internally to a step period in
-**microseconds**, not milliseconds like most other timing in this
-firmware -- `millis()` resolution alone caps real achievable speed around
-10mm/s regardless of what's requested, so this needed switching to
-`micros()` to be reachable at all. One thing worth watching for on the
-bench: `readAbPressures()`'s I2C reads (MPRLS conversion wait) run inside
-the same `loop()` at up to 100 Hz and can block for a few ms at a time;
-since a fast piston step period is only ~166µs (at 60mm/s), that blocking
-could measurably reduce the *actual* achieved speed below the commanded
-value if it turns out to matter in practice -- not addressed here, since it
-hasn't been observed as a real problem yet.
+MAX_PISTON_SPEED_MM_S]` (0.1-120mm/s, the upper bound being the datasheet's
+charted ceiling, **not** a confirmed-working value on this hardware) and
+converts it internally to a step period in **microseconds**, not
+milliseconds like most other timing in this firmware -- `millis()`
+resolution alone caps real achievable speed around 10mm/s regardless of
+what's requested. In practice that means today's `10mm/s` default is about
+as fast as the old `millis()`-based timing could have reached anyway; the
+`micros()` switch mainly gives headroom for whenever the >15mm/s failure
+gets diagnosed, rather than being a win on its own today.
 
 ## AB pressure control
 

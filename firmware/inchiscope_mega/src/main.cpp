@@ -123,15 +123,22 @@ const float PISTON_STEP_SIZE_MM = 0.01f;  // mm advanced per full step -- matche
 // actuator's speed/force curve is reachable (per the Actuonix S20-38 load
 // curve at 640mA: full step covers roughly 55-120mm/s at ~6.5N down to
 // ~1.3N; well below that, force climbs well past 10N, up to ~13-18N near
-// 1mm/s -- there's no hardware reason not to run slower than 55mm/s, it's
-// just rougher/noisier per step, which doesn't matter given the EM
-// tracker's closed loop already tolerates the odd missed step). Default
-// picked at the low end of the full-step zone for a first cut of margin;
-// override per piston with PISTON_SPEED once bench-verified against the
-// actual mechanical load.
-const float DEFAULT_PISTON_SPEED_MM_S = 60.0f;
+// 1mm/s). That said, EMPIRICALLY on this bench hardware the actuator
+// doesn't move reliably at all from 15mm/s up -- not degraded, just
+// non-functional -- which the load curve alone doesn't explain. The
+// likely cause (unconfirmed, not yet fixed): every PISTON/HOME move starts
+// stepping immediately at the full commanded rate with no acceleration
+// ramp from standstill, and the datasheet explicitly warns "without
+// adequate ramping, the actuator will not move" at higher speeds. Ruled
+// out as the cause: I2C blocking from readAbPressures() -- the AB
+// pressure sensors aren't wired on this bench setup, and that function
+// already skips any sensor not detected at boot. Default is set below the
+// observed failure threshold, with margin; raise it again (or add a step
+// ramp) once/if that's revisited.
+const float DEFAULT_PISTON_SPEED_MM_S = 10.0f;
 const float MIN_PISTON_SPEED_MM_S = 0.1f;    // arbitrary floor, just avoids a zero/negative period
-const float MAX_PISTON_SPEED_MM_S = 120.0f;  // datasheet's charted ceiling for this actuator
+const float MAX_PISTON_SPEED_MM_S = 120.0f;  // datasheet's charted ceiling -- NOT confirmed reachable
+                                              // on this bench hardware, see note above
 
 // Default usable piston travel -- the full 0..100mm stroke. Runtime-settable
 // per piston via PISTON_RANGE (see piston_min_mm/piston_max_mm below), since
