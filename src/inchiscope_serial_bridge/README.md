@@ -56,6 +56,12 @@ whichever command was sent last:
   path. Refused with an `ERR` (mode doesn't change) if that AB's pressure
   sensor wasn't detected at boot -- check `PressureState.sensor_connected`
   on `/firmware/pressure_state` before relying on this.
+  **Untested -- do not use yet.** `AB_PID_KP/KI/KD` are unfit placeholder
+  gains, and the PID-output-to-actual-pressure sign convention hasn't been
+  verified against a real 3-way valve + regulator pair (wrong sign drives
+  away from the target, not toward it). Confirm open-loop `VALVE` control
+  works correctly first; treat `AB_PID` as needing bench iteration on gains
+  and possibly a sign flip before it's trustworthy.
 
 `PressureState.mode` (`"open_loop"` | `"pid"`) is ground truth reported by
 firmware, not something the bridge or PC infers -- it reflects whichever

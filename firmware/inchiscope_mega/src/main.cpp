@@ -134,8 +134,13 @@ const unsigned long TELEMETRY_PERIOD_MS = 50;   // 20 Hz telemetry
 // enough for a reasonably tight pressure hold without saturating the I2C mux.
 const unsigned long AB_PID_PERIOD_MS = 10;
 
-// PLACEHOLDER PID gains -- pending bench tuning against the real pneumatics,
-// same status as the AB pressure ceilings / diameter curve on the PC side.
+// UNTESTED -- do not rely on AB_PID yet. These are unfit placeholder gains,
+// and the sign of PID output -> ab_duty_pct -> actual pressure response has
+// never been checked against a real 3-way valve + regulator pair (get that
+// wrong and it drives away from target_kpa instead of toward it). Verify
+// open-loop VALVE control first, then bench-tune these before trusting
+// AB_PID unattended -- same PLACEHOLDER status as the AB pressure ceilings /
+// diameter curve on the PC side, but with the added risk of an unverified sign.
 const float AB_PID_KP = 2.0f;
 const float AB_PID_KI = 0.5f;
 const float AB_PID_KD = 0.05f;

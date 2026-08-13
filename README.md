@@ -63,10 +63,16 @@ intended build order.
   `src/inchiscope_serial_bridge/README.md`. `REG_RANGE`/`PISTON_RANGE` let
   the PC override the default kPa/mm ranges at runtime if the physical
   hardware ever changes.
-- **AB PID gains in firmware are placeholders.** `AB_PID_KP/KI/KD` in
-  `firmware/inchiscope_mega/src/main.cpp` haven't been tuned against real
-  hardware yet -- same PLACEHOLDER status as the AB pressure ceilings and
-  diameter curve above.
+- **`AB_PID` (firmware pressure-hold mode) is untested -- do not use yet.**
+  It's implemented (`serviceAbPid()` in `main.cpp`) but has never been run
+  against real pneumatics: `AB_PID_KP/KI/KD` are unfit placeholder gains,
+  and the sign/direction of the PID output -> valve duty -> actual pressure
+  response hasn't been verified against a real 3-way valve + regulator pair
+  (get that wrong and it drives away from the target instead of toward it).
+  Bench-test everything else first via `VALVE` (open-loop, see Command
+  reference below); come back to `AB_PID` once open-loop control is
+  confirmed working, and expect to iterate on gains and possibly flip a
+  sign before trusting it unattended.
 
 ## Build
 
@@ -136,6 +142,35 @@ ros2 run inchiscope_camera camera_node --ros-args --params-file src/inchiscope_b
 ros2 run inchiscope_camera camera_viewer_node
 ```
 
+### Raw serial bench test (no ROS2 required)
+
+Useful for the very first check after flashing -- open a serial monitor at
+115200 baud (`pio device monitor -b 115200`, or the Arduino IDE monitor,
+newline-terminated) and type these directly. Covers homing, piston range,
+and open-loop AB control; **excludes `AB_PID`, which is untested** (see
+Open items above) -- don't send it yet.
+
+```
+PING                          # expect: ACK PING
+PISTON d1 45.0                # expect: ERR piston not homed: d1 (not homed yet)
+PISTON_RANGE d1 0 100         # expect: ACK PISTON_RANGE d1 0.000 100.000
+HOME d1                       # expect: ACK HOME d1, then watch TEL's d1 homed flag flip 0->1 after ~30s
+PISTON d1 45.0                # expect: ACK PISTON d1 45.000, now moves
+PISTON_RANGE ALL 10 90        # expect: ACK PISTON_RANGE ALL 10.000 90.000
+HOME ALL                      # expect: ACK HOME ALL, homes every connected piston in parallel
+PISTON d1 5.0                 # expect: ACK PISTON d1 10.000 (clamped to the new min)
+VALVE central 0               # expect: ACK VALVE central 0 (neutral/balanced)
+VALVE central 100              # expect: ACK VALVE central 100 (fully toward positive line)
+VALVE central -100             # expect: ACK VALVE central -100 (fully toward negative line)
+VALVE central 150              # expect: ACK VALVE central 100 (clamped)
+REG POS 50                    # expect: ACK REG POS 50.00 (or ERR regulator DAC not connected if the 0x5F DAC isn't wired/detected)
+REG NEG -30                   # expect: ACK REG NEG -30.00
+REG_RANGE POS 0 80            # expect: ACK REG_RANGE POS 0.00 80.00 -- subsequent REG POS values now map against this range
+PISTON x9 10                  # expect: ERR unknown piston id: x9
+VALVE nowhere 10              # expect: ERR unknown ab id: nowhere
+HOME nowhere                  # expect: ERR unknown home target: nowhere
+```
+
 ### Home a piston, then command it (required order -- see Open items above)
 
 ```bash
@@ -145,15 +180,16 @@ ros2 topic echo /firmware/piston_state --once   # check homed: true before comma
 ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
 ```
 
-### Drive an AB (open-loop or firmware PID hold)
+### Drive an AB open-loop (PID untested -- see Open items above, don't use `/firmware/ab_pid_cmd` yet)
 
 ```bash
 ros2 topic pub -1 /firmware/regulator_range_cmd inchiscope_msgs/msg/RegulatorRangeCommand "{regulator_id: positive, min_kpa: 0.0, max_kpa: 100.0}"  # optional, matches firmware defaults
 ros2 topic pub -1 /firmware/regulator_cmd inchiscope_msgs/msg/RegulatorCommand "{regulator_id: positive, target_kpa: 80.0}"
 ros2 topic pub -1 /firmware/regulator_cmd inchiscope_msgs/msg/RegulatorCommand "{regulator_id: negative, target_kpa: -60.0}"
-ros2 topic pub /firmware/valve_cmd inchiscope_msgs/msg/ValveCommand "{ab_id: central, duty_pct: 50.0}"     # open-loop, signed -100..100
-ros2 topic pub /firmware/ab_pid_cmd inchiscope_msgs/msg/AbPidCommand "{ab_id: central, target_kpa: 40.0}"  # firmware PID hold
-ros2 topic echo /firmware/pressure_state   # check mode/sensor_connected/at_target
+ros2 topic pub /firmware/valve_cmd inchiscope_msgs/msg/ValveCommand "{ab_id: central, duty_pct: 0.0}"     # neutral/balanced
+ros2 topic pub /firmware/valve_cmd inchiscope_msgs/msg/ValveCommand "{ab_id: central, duty_pct: 100.0}"   # fully toward positive line
+ros2 topic pub /firmware/valve_cmd inchiscope_msgs/msg/ValveCommand "{ab_id: central, duty_pct: -100.0}"  # fully toward negative line
+ros2 topic echo /firmware/pressure_state   # check mode (should stay open_loop) and sensor_connected
 ```
 
 ### Inspect topics / tf
