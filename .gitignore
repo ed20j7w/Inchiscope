@@ -21,3 +21,11 @@ __pycache__/
 # rosbag2 output
 *_bag/
 rosbag2_*/
+
+# calibrate_camera.py scratch output -- the canonical, committed calibration
+# lives at src/inchiscope_bringup/config/camera_info.yaml (wired into
+# camera_node's camera_info_path); these are the raw capture frames and
+# whatever camera_info.yaml calibrate_camera.py writes if run from its
+# default --out-dir/--out inside scripts/, not something to duplicate/track.
+src/inchiscope_camera/scripts/calib_frames/
+src/inchiscope_camera/scripts/camera_info.yaml
