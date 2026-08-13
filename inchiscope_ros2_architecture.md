@@ -351,8 +351,11 @@ string current_phase
   also pads that ~320x320 content with a black border (plus a logo/info overlay in part of it) —
   `crop_x/y/width/height` params cut that out, set manually since the overlay rules out a simple
   auto-detect-the-black-border approach; re-check `v4l2-ctl` and re-measure the crop on different
-  capture-card hardware or resolution, don't assume these numbers carry over. `/camera/camera_info`
-  still isn't published — add it once the *cropped* feed has been calibrated.
+  capture-card hardware or resolution, don't assume these numbers carry over. Confirmed working:
+  `391,111,480,480`, a clean 480x480 square. `/camera/camera_info` is now published from a
+  `camera_info_path` YAML file (`scripts/calibrate_camera.py`'s output, ROS CameraInfo layout);
+  `camera_node` cross-checks that file's resolution against what it's actually publishing and
+  refuses to publish (logging why) rather than publish mismatched intrinsics on a mismatch.
 - `camera_viewer_node` — added beyond the original spec: a separate node subscribing to
   `/camera/image_raw` and showing it in a `cv2.imshow` window, kept out of `camera_node` itself
   so the capture/publish path can run headless. See `src/inchiscope_camera/README.md`.
@@ -391,8 +394,9 @@ string current_phase
    anticipated: both are implemented and hardware-verified (Aurora publishing reference/sensor/
    relative pose with RViz visualisation; camera publishing at the smallest exact-16:9 MJPG
    resolution this capture card offers (1280x720 -- 640x480 was tried and made the aspect-ratio
-   squash worse, not better), with a working `cv2.imshow` viewer). Cropping the
-   black border/logo out and calibrating the cropped feed are open items, see section 5.
+   squash worse, not better), with a working `cv2.imshow` viewer). The black border/logo is
+   cropped out (confirmed clean 480x480), calibrated (0.55px RMS reprojection error), and
+   `/camera/camera_info` is now published — see section 5.
 5. **`rosbag2` recording + offline reconstruction pipeline** — last, once pose and image streams
    are individually verified. **Recording half done**: `record.launch.py` captures the pose and
    image topics with a timestamped bag name, verified as the correct approach since rosbag2 keeps

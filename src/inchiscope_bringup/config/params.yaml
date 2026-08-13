@@ -63,10 +63,16 @@ camera_node:
     height: 720
     fps: 30.0
     frame_id: naneye_camera
-    # PLACEHOLDER -- crop out the black border/logo overlay above. Disabled
-    # (crop_width/crop_height == 0) until measured against a real saved
-    # frame at 640x480; see src/inchiscope_camera/README.md for how.
+    # Crops out the black border/logo overlay above. Confirmed working: a
+    # clean 480x480 square with no border/logo. Re-measure if width/height
+    # above ever change -- see src/inchiscope_camera/README.md for how.
     crop_x: 391
     crop_y: 111
     crop_width: 480
     crop_height: 480
+    # Calibrated at the exact 480x480 crop above (scripts/calibrate_camera.py,
+    # 27/27 frames used, 0.55px RMS reprojection error). camera_node checks
+    # this file's image_width/image_height against what it's actually
+    # publishing and refuses to publish /camera/camera_info on a mismatch --
+    # re-run calibration and update this file if width/height/crop above change.
+    camera_info_path: "src/inchiscope_bringup/config/camera_info.yaml"

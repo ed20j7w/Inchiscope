@@ -83,21 +83,25 @@ intended build order.
   reference below); come back to `AB_PID` once open-loop control is
   confirmed working, and expect to iterate on gains and possibly flip a
   sign before trusting it unattended.
-- **Camera crop is set and confirmed working.** The NanEye sensor's real
-  content is only ~320x320; the capture card pads that with a black border
-  (plus a logo/info overlay in part of it) out to whichever resolution is
-  requested. **Bench-confirmed: requesting a non-16:9 size (`640x480`, this
-  device's smallest overall) made the squash worse, not better** --
-  presumably this ISP only pads/scales correctly for a 16:9 target. Capture
-  resolution is `1280x720` (the smallest exact-16:9 size this device
-  offers, vs `1360x768` which is only approximately 16:9); `camera_node`'s
+- **Camera crop set, calibrated, and `/camera/camera_info` now published.**
+  The NanEye sensor's real content is only ~320x320; the capture card pads
+  that with a black border (plus a logo/info overlay in part of it) out to
+  whichever resolution is requested. **Bench-confirmed: requesting a
+  non-16:9 size (`640x480`, this device's smallest overall) made the
+  squash worse, not better** -- presumably this ISP only pads/scales
+  correctly for a 16:9 target. Capture resolution is `1280x720` (the
+  smallest exact-16:9 size this device offers); `camera_node`'s
   `crop_x/y/width/height` are set in `params.yaml` (`391,111,480,480`) and
-  confirmed to publish a clean 480x480 square with no border or logo. See
-  `src/inchiscope_camera/README.md` if this ever needs re-measuring (e.g.
-  different capture-card hardware, or a resolution change). Calibration
-  (`src/inchiscope_camera/scripts/`) can now proceed against this cropped
-  feed -- `calibrate_camera.py capture` takes matching `--crop-*` flags so
-  it captures the same content `camera_node` actually publishes.
+  confirmed to publish a clean 480x480 square with no border or logo.
+  Calibrated against that exact crop (8mm-square board, 27/27 frames,
+  0.55px RMS reprojection error) -- see `camera_info_path` in
+  `params.yaml` and `src/inchiscope_camera/scripts/README.md`.
+  `camera_node` cross-checks the calibration file's resolution against
+  what it's actually publishing and refuses to publish `/camera/camera_info`
+  (logging why) on a mismatch, e.g. after a resolution/crop change without
+  recalibrating. See `src/inchiscope_camera/README.md` for how to
+  re-measure the crop if this ever needs redoing (different capture-card
+  hardware, or a resolution change).
 
 ## Build
 

@@ -79,14 +79,18 @@ extra synchronisation machinery at record time.
 
 ## Camera calibration
 
-`/camera/camera_info` isn't published yet (see the TODO in
-`camera_node.py`) -- `scripts/` has the standalone tools (checkerboard
-target generator + an OpenCV `calibrateCamera` capture/solve script) to
-determine the intrinsics that TODO needs. See `scripts/README.md`.
+`/camera/camera_info` is now published, from `camera_info_path` in
+`params.yaml` (currently `src/inchiscope_bringup/config/camera_info.yaml`).
+`scripts/` has the standalone tools (checkerboard target generator + an
+OpenCV `calibrateCamera` capture/solve script) that produced it -- see
+`scripts/README.md`. Current calibration: 8mm-square board, 27/27 frames
+used, 0.55px RMS reprojection error, against the confirmed `391,111,480,480`
+crop above.
 
-Calibrate against whatever `camera_node` actually publishes in production,
-**after** setting up the crop above -- not the raw `1280x720` padded frame.
-The sensor's real content is confirmed ~320x320 (see the crop notes
-above); calibrating on the uncropped frame would fit intrinsics to an image
-that includes the black border/logo, which don't move the way real scene
-content does under the pinhole model calibration assumes.
+`camera_node` checks the calibration file's `image_width`/`image_height`
+against what it's actually publishing at startup, and **refuses to publish
+`/camera/camera_info` (logging why) rather than publish mismatched
+intrinsics** if they don't match -- e.g. if `width`/`height`/the crop
+above are ever changed without recalibrating. Recalibrate and overwrite
+`camera_info.yaml` (or point `camera_info_path` at a new file) any time
+the capture resolution or crop changes.
