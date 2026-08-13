@@ -2,26 +2,29 @@
 
 - `camera_node` -- captures the NanEye feed off the capture card (plain
   V4L2/UVC device, no vendor SDK needed) and publishes it on
-  `/camera/image_raw`. Defaults to `pixel_format: MJPG`, `width: 640`,
-  `height: 480`.
+  `/camera/image_raw`. Defaults to `pixel_format: MJPG`, `width: 1280`,
+  `height: 720`.
 
   **The sensor's real content is only ~320x320.** This capture card's ISP
   pads that with a black border (plus a logo/info overlay in part of that
   border) out to whichever fixed resolution is requested, then scales the
-  whole padded frame -- border included -- up to that size. `640x480` is
-  the *smallest* size this device offers at all (confirmed via
-  `v4l2-ctl -d /dev/video0 --list-formats-ext`: both MJPG and YUYV only
-  advertise a fixed generic "webcam" list from `640x480` up to `1920x1080`,
-  with several 4:3/5:4 sizes in between -- none of it tailored to the
-  actual sensor). Anything bigger than `640x480` is pure waste: more pixels
-  for every downstream CV step, zero extra real detail. MJPG hits 60fps at
-  every size this device offers, so there's no framerate reason to prefer
-  a bigger one either. If you're on different capture card hardware, re-run
-  that `v4l2-ctl` command and adjust `pixel_format`/`width`/`height` in
+  whole padded frame -- border included -- up to that size. Confirmed via
+  `v4l2-ctl -d /dev/video0 --list-formats-ext`: this device only advertises
+  a fixed generic "webcam" list (`640x480` up to `1920x1080`), most of
+  which is 4:3/5:4, not 16:9. **Bench-confirmed: requesting a non-16:9 size
+  (`640x480`, the smallest overall) made the squash worse, not better** --
+  this ISP apparently only pads/scales correctly for a 16:9 target. Of the
+  three 16:9(-ish) sizes on offer -- `1920x1080`, `1360x768` (only
+  *approximately* 16:9: 1.7708 vs exact 1.7778), and `1280x720` (exact
+  16:9) -- `1280x720` is the smallest exact one, so it's the default: least
+  upscale waste available without reintroducing the squash. MJPG hits
+  60fps at every size this device offers, so no framerate reason to go
+  bigger. If you're on different capture card hardware, re-run that
+  `v4l2-ctl` command and adjust `pixel_format`/`width`/`height` in
   `params.yaml` to match what it actually reports -- don't assume these
-  same numbers apply. Setting `width`/`height` to `0` skips overriding them
-  and uses the driver's default for whatever `pixel_format` is set, as an
-  escape hatch.
+  same numbers, or the non-16:9-squashes finding, apply. Setting
+  `width`/`height` to `0` skips overriding them and uses the driver's
+  default for whatever `pixel_format` is set, as an escape hatch.
 
   **`crop_x`/`crop_y`/`crop_width`/`crop_height`** cut the black
   border/logo out of the published image, since leaving it in wastes
@@ -30,7 +33,7 @@
   the border isn't pure black (the logo/info overlay), which rules out a
   simple auto-detect-the-black-border approach, so these are set manually:
   1. Run `camera_node` at whatever resolution you intend to use (the
-     `640x480` default), then save one frame -- e.g.
+     `1280x720` default), then save one frame -- e.g.
      `ros2 run inchiscope_camera camera_viewer_node`, screenshot it, or add
      a one-off `cv2.imwrite()` -- and open it in any image editor that
      shows pixel coordinates on hover.
@@ -76,7 +79,7 @@ target generator + an OpenCV `calibrateCamera` capture/solve script) to
 determine the intrinsics that TODO needs. See `scripts/README.md`.
 
 Calibrate against whatever `camera_node` actually publishes in production,
-**after** setting up the crop above -- not the raw `640x480` padded frame.
+**after** setting up the crop above -- not the raw `1280x720` padded frame.
 The sensor's real content is confirmed ~320x320 (see the crop notes
 above); calibrating on the uncropped frame would fit intrinsics to an image
 that includes the black border/logo, which don't move the way real scene

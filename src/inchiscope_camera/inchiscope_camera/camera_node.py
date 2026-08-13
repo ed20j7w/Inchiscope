@@ -36,16 +36,21 @@ class CameraNode(Node):
         # (confirmed via `v4l2-ctl -d /dev/video0 --list-formats-ext`).
         self.declare_parameter('pixel_format', 'MJPG')
         # This capture card only advertises a fixed set of generic "webcam"
-        # resolutions (1920x1080 down to 640x480, plus some 4:3/5:4 sizes in
-        # between) regardless of the sensor's actual ~320x320 content --
-        # 640x480 is the smallest it offers, so it's the least-upscaled
-        # option available; anything bigger is pure waste (more pixels for
-        # every downstream CV op, zero extra real detail). 0/0 means "don't
-        # override width/height -- use the capture card's default", an
-        # escape hatch if you change pixel_format to something this device
-        # handles differently.
-        self.declare_parameter('width', 640)
-        self.declare_parameter('height', 480)
+        # resolutions (1920x1080 down to 640x480) regardless of the sensor's
+        # actual ~320x320 content -- most of which are 4:3/5:4, not 16:9.
+        # Bench-confirmed: requesting a non-16:9 size (640x480 was tried)
+        # makes the squash *worse*, not better, presumably because the
+        # card's ISP pads/scales the content correctly only for a 16:9
+        # target. Of this device's three 16:9(-ish) sizes -- 1920x1080,
+        # 1360x768 (only approximately 16:9, 1.7708 vs exact 1.7778), and
+        # 1280x720 (exact 16:9) -- 1280x720 is both the smallest and the
+        # only exact one, so it's the right default: least upscale waste
+        # available without reintroducing the aspect-driven squash. 0/0
+        # means "don't override width/height -- use the capture card's
+        # default", an escape hatch if you change pixel_format to something
+        # this device handles differently.
+        self.declare_parameter('width', 1280)
+        self.declare_parameter('height', 720)
         self.declare_parameter('fps', 30.0)
         self.declare_parameter('frame_id', 'naneye_camera')
 

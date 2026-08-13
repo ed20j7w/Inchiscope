@@ -341,11 +341,14 @@ string current_phase
 
 ### `camera_node` (inchiscope_camera) — **implemented**
 - Publishes the NanEye feed on `/camera/image_raw` via `cv2.VideoCapture` against the capture
-  card's V4L2 device node. Defaults to `pixel_format: MJPG`, `640x480` — confirmed via
-  `v4l2-ctl --list-formats-ext` to be the *smallest* size this capture card offers at all (a
-  fixed generic list from 640x480 up to 1920x1080); the sensor's real content is only ~320x320,
-  so anything bigger is the capture card upsampling with zero extra real detail. The card also
-  pads that ~320x320 content with a black border (plus a logo/info overlay in part of it) —
+  card's V4L2 device node. Defaults to `pixel_format: MJPG`, `1280x720` — confirmed via
+  `v4l2-ctl --list-formats-ext` that this device's fixed generic size list (640x480 up to
+  1920x1080) is mostly 4:3/5:4, not 16:9, and bench-testing found requesting a non-16:9 size
+  (640x480, the smallest overall) makes the squash *worse*, not better — apparently this ISP only
+  pads/scales correctly for a 16:9 target. Of the three 16:9(-ish) sizes offered, `1280x720` is
+  the smallest exact one (`1360x768` is only approximately 16:9). The sensor's real content is
+  only ~320x320, so even at 1280x720 there's real upscale waste, just without the squash. The card
+  also pads that ~320x320 content with a black border (plus a logo/info overlay in part of it) —
   `crop_x/y/width/height` params cut that out, set manually since the overlay rules out a simple
   auto-detect-the-black-border approach; re-check `v4l2-ctl` and re-measure the crop on different
   capture-card hardware or resolution, don't assume these numbers carry over. `/camera/camera_info`
@@ -386,8 +389,9 @@ string current_phase
 4. **`aurora_tracker_node`** and **`camera_node`** in parallel — these don't block locomotion
    testing and can be developed independently. **Done**, ahead of steps 2-3 as the plan
    anticipated: both are implemented and hardware-verified (Aurora publishing reference/sensor/
-   relative pose with RViz visualisation; camera publishing at the least-wasteful 640x480 MJPG
-   resolution this capture card offers, with a working `cv2.imshow` viewer). Cropping the
+   relative pose with RViz visualisation; camera publishing at the smallest exact-16:9 MJPG
+   resolution this capture card offers (1280x720 -- 640x480 was tried and made the aspect-ratio
+   squash worse, not better), with a working `cv2.imshow` viewer). Cropping the
    black border/logo out and calibrating the cropped feed are open items, see section 5.
 5. **`rosbag2` recording + offline reconstruction pipeline** — last, once pose and image streams
    are individually verified. **Recording half done**: `record.launch.py` captures the pose and

@@ -50,14 +50,17 @@ camera_node:
     # with a black border (+ a logo/info overlay in part of that border) to
     # whichever fixed resolution is requested, then scales the whole padded
     # frame up. Confirmed via `v4l2-ctl -d /dev/video0 --list-formats-ext`:
-    # 640x480 is the SMALLEST size this device offers in either MJPG or
-    # YUYV (1920x1080 down through several 4:3/5:4 sizes to 640x480) -- so
-    # it's the least-upscaled/least-wasteful option available, not an
-    # arbitrary choice. MJPG hits 60fps at every size this device offers,
-    # so there's no framerate reason to prefer a bigger one.
+    # most sizes this device offers are 4:3/5:4, not 16:9, and
+    # bench-testing found requesting a non-16:9 size (640x480, the smallest
+    # overall) makes the squash WORSE, not better -- presumably the ISP
+    # only pads/scales correctly for a 16:9 target. Of the three 16:9(-ish)
+    # sizes offered -- 1920x1080, 1360x768 (only approximately 16:9), and
+    # 1280x720 (exact 16:9) -- 1280x720 is the smallest exact one, so least
+    # upscale waste without the aspect-driven squash. MJPG hits 60fps at
+    # every size this device offers, so no framerate reason to go bigger.
     pixel_format: MJPG
-    width: 640
-    height: 480
+    width: 1280
+    height: 720
     fps: 30.0
     frame_id: naneye_camera
     # PLACEHOLDER -- crop out the black border/logo overlay above. Disabled

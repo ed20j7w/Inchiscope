@@ -85,13 +85,17 @@ intended build order.
   sign before trusting it unattended.
 - **Camera crop is unset (`PLACEHOLDER`).** The NanEye sensor's real
   content is only ~320x320; the capture card pads that with a black border
-  (plus a logo/info overlay in part of it) out to `640x480` (the smallest
-  size it offers -- bumped down from `1920x1080`, which was pure wasted
-  upscale) and `camera_node`'s `crop_x/y/width/height` params need
-  measuring by hand against a saved frame before `/camera/image_raw` is
-  actually just real content -- see `src/inchiscope_camera/README.md`.
-  Calibration (`src/inchiscope_camera/scripts/`) should happen *after*
-  this crop is set, against the cropped feed, not before.
+  (plus a logo/info overlay in part of it) out to whichever resolution is
+  requested. **Bench-confirmed: requesting a non-16:9 size (`640x480`, this
+  device's smallest overall) made the squash worse, not better** --
+  presumably this ISP only pads/scales correctly for a 16:9 target. Default
+  is now `1280x720` (the smallest exact-16:9 size this capture card
+  offers, vs `1360x768` which is only approximately 16:9). `camera_node`'s
+  `crop_x/y/width/height` params still need measuring by hand against a
+  saved frame at this resolution before `/camera/image_raw` is actually
+  just real content -- see `src/inchiscope_camera/README.md`. Calibration
+  (`src/inchiscope_camera/scripts/`) should happen *after* this crop is
+  set, against the cropped feed, not before.
 
 ## Build
 

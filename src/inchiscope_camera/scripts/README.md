@@ -34,7 +34,7 @@ five printed sizes as a testing range rather than a computed answer. Hold
 each cutout at the distance where the live camera view is sharpest and see
 which one fills a good fraction of the real ~320x320 content (see the
 crop notes in `inchiscope_camera/README.md` -- calibrate on the cropped
-feed, not the raw capture, which pads that content out to 640x480 with a
+feed, not the raw capture, which pads that content out to 1280x720 with a
 black border) without corners falling outside it.
 
 ## 2. Capture calibration frames
