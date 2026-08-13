@@ -341,11 +341,15 @@ string current_phase
 
 ### `camera_node` (inchiscope_camera) — **implemented**
 - Publishes the NanEye feed on `/camera/image_raw` via `cv2.VideoCapture` against the capture
-  card's V4L2 device node. Defaults to `pixel_format: MJPG`, `1920x1080` — the capture card's
-  YUYV fallback (what you get with no explicit FOURCC) both defaults to a 4:3 800x600 mode and
-  caps out well below 30fps at 16:9 sizes, confirmed via `v4l2-ctl --list-formats-ext`; re-check
-  that command on different capture-card hardware. `/camera/camera_info` still isn't published —
-  add it once the lens/sensor has been calibrated, as originally planned.
+  card's V4L2 device node. Defaults to `pixel_format: MJPG`, `640x480` — confirmed via
+  `v4l2-ctl --list-formats-ext` to be the *smallest* size this capture card offers at all (a
+  fixed generic list from 640x480 up to 1920x1080); the sensor's real content is only ~320x320,
+  so anything bigger is the capture card upsampling with zero extra real detail. The card also
+  pads that ~320x320 content with a black border (plus a logo/info overlay in part of it) —
+  `crop_x/y/width/height` params cut that out, set manually since the overlay rules out a simple
+  auto-detect-the-black-border approach; re-check `v4l2-ctl` and re-measure the crop on different
+  capture-card hardware or resolution, don't assume these numbers carry over. `/camera/camera_info`
+  still isn't published — add it once the *cropped* feed has been calibrated.
 - `camera_viewer_node` — added beyond the original spec: a separate node subscribing to
   `/camera/image_raw` and showing it in a `cv2.imshow` window, kept out of `camera_node` itself
   so the capture/publish path can run headless. See `src/inchiscope_camera/README.md`.
@@ -382,8 +386,9 @@ string current_phase
 4. **`aurora_tracker_node`** and **`camera_node`** in parallel — these don't block locomotion
    testing and can be developed independently. **Done**, ahead of steps 2-3 as the plan
    anticipated: both are implemented and hardware-verified (Aurora publishing reference/sensor/
-   relative pose with RViz visualisation; camera publishing at the corrected 1920x1080 MJPG
-   resolution with a working `cv2.imshow` viewer).
+   relative pose with RViz visualisation; camera publishing at the least-wasteful 640x480 MJPG
+   resolution this capture card offers, with a working `cv2.imshow` viewer). Cropping the
+   black border/logo out and calibrating the cropped feed are open items, see section 5.
 5. **`rosbag2` recording + offline reconstruction pipeline** — last, once pose and image streams
    are individually verified. **Recording half done**: `record.launch.py` captures the pose and
    image topics with a timestamped bag name, verified as the correct approach since rosbag2 keeps

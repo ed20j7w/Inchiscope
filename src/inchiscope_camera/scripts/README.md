@@ -32,8 +32,10 @@ tan(half_FOV_degrees)) / squares_across` -- but this camera's exact FOV/
 working distance weren't available from a datasheet here, so treat the
 five printed sizes as a testing range rather than a computed answer. Hold
 each cutout at the distance where the live camera view is sharpest and see
-which one fills a good fraction of the 400x400 frame without corners
-falling outside it.
+which one fills a good fraction of the real ~320x320 content (see the
+crop notes in `inchiscope_camera/README.md` -- calibrate on the cropped
+feed, not the raw capture, which pads that content out to 640x480 with a
+black border) without corners falling outside it.
 
 ## 2. Capture calibration frames
 

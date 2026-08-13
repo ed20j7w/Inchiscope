@@ -46,13 +46,24 @@ aurora_tracker_node:
 camera_node:
   ros__parameters:
     device: /dev/video0
-    # Confirmed via `v4l2-ctl -d /dev/video0 --list-formats-ext`: MJPG on
-    # this capture card supports both 1280x720 and 1920x1080 at up to
-    # 60fps, so there's no framerate cost to the larger one. The YUYV
-    # fallback (what you get without pixel_format set) both defaults to a
-    # 4:3 800x600 mode and caps out well below 30fps at 16:9 sizes.
+    # The sensor's real content is only ~320x320; this capture card pads it
+    # with a black border (+ a logo/info overlay in part of that border) to
+    # whichever fixed resolution is requested, then scales the whole padded
+    # frame up. Confirmed via `v4l2-ctl -d /dev/video0 --list-formats-ext`:
+    # 640x480 is the SMALLEST size this device offers in either MJPG or
+    # YUYV (1920x1080 down through several 4:3/5:4 sizes to 640x480) -- so
+    # it's the least-upscaled/least-wasteful option available, not an
+    # arbitrary choice. MJPG hits 60fps at every size this device offers,
+    # so there's no framerate reason to prefer a bigger one.
     pixel_format: MJPG
-    width: 1920
-    height: 1080
+    width: 640
+    height: 480
     fps: 30.0
     frame_id: naneye_camera
+    # PLACEHOLDER -- crop out the black border/logo overlay above. Disabled
+    # (crop_width/crop_height == 0) until measured against a real saved
+    # frame at 640x480; see src/inchiscope_camera/README.md for how.
+    crop_x: 0
+    crop_y: 0
+    crop_width: 0
+    crop_height: 0

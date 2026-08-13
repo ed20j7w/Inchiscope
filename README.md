@@ -83,6 +83,15 @@ intended build order.
   reference below); come back to `AB_PID` once open-loop control is
   confirmed working, and expect to iterate on gains and possibly flip a
   sign before trusting it unattended.
+- **Camera crop is unset (`PLACEHOLDER`).** The NanEye sensor's real
+  content is only ~320x320; the capture card pads that with a black border
+  (plus a logo/info overlay in part of it) out to `640x480` (the smallest
+  size it offers -- bumped down from `1920x1080`, which was pure wasted
+  upscale) and `camera_node`'s `crop_x/y/width/height` params need
+  measuring by hand against a saved frame before `/camera/image_raw` is
+  actually just real content -- see `src/inchiscope_camera/README.md`.
+  Calibration (`src/inchiscope_camera/scripts/`) should happen *after*
+  this crop is set, against the cropped feed, not before.
 
 ## Build
 
