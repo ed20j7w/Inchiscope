@@ -68,5 +68,5 @@ camera_node:
     # frame at 640x480; see src/inchiscope_camera/README.md for how.
     crop_x: 391
     crop_y: 111
-    crop_width: 720
+    crop_width: 480
     crop_height: 480
