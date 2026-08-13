@@ -66,7 +66,7 @@ camera_node:
     # PLACEHOLDER -- crop out the black border/logo overlay above. Disabled
     # (crop_width/crop_height == 0) until measured against a real saved
     # frame at 640x480; see src/inchiscope_camera/README.md for how.
-    crop_x: 0
-    crop_y: 0
-    crop_width: 0
-    crop_height: 0
+    crop_x: 391
+    crop_y: 111
+    crop_width: 720
+    crop_height: 480
