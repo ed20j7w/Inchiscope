@@ -7,11 +7,16 @@ from rclpy.node import Node
 import serial
 
 from inchiscope_msgs.msg import (
+    AbPidCommand,
+    HomeCommand,
     PistonCommand,
+    PistonRangeCommand,
     PistonState,
     PistonStateArray,
     PressureState,
     PressureStateArray,
+    RegulatorCommand,
+    RegulatorRangeCommand,
     ValveCommand,
 )
 
@@ -33,12 +38,16 @@ class SerialBridgeNode(Node):
         self.declare_parameter('port', '/dev/ttyACM1')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('piston_at_target_threshold_mm', 0.1)
+        self.declare_parameter('ab_pid_at_target_threshold_kpa', 1.0)
         self.declare_parameter('telemetry_timeout_sec', 1.0)
 
         port = self.get_parameter('port').value
         baud = self.get_parameter('baud').value
         self._at_target_threshold = float(
             self.get_parameter('piston_at_target_threshold_mm').value
+        )
+        self._ab_at_target_threshold = float(
+            self.get_parameter('ab_pid_at_target_threshold_kpa').value
         )
         self._telemetry_timeout = float(
             self.get_parameter('telemetry_timeout_sec').value
@@ -55,10 +64,32 @@ class SerialBridgeNode(Node):
             PistonCommand, '/firmware/piston_cmd', self._on_piston_cmd, 10
         )
         self.create_subscription(
+            HomeCommand, '/firmware/home_cmd', self._on_home_cmd, 10
+        )
+        self.create_subscription(
+            PistonRangeCommand, '/firmware/piston_range_cmd', self._on_piston_range_cmd, 10
+        )
+        self.create_subscription(
             ValveCommand, '/firmware/valve_cmd', self._on_valve_cmd, 10
+        )
+        self.create_subscription(
+            AbPidCommand, '/firmware/ab_pid_cmd', self._on_ab_pid_cmd, 10
+        )
+        self.create_subscription(
+            RegulatorCommand, '/firmware/regulator_cmd', self._on_regulator_cmd, 10
+        )
+        self.create_subscription(
+            RegulatorRangeCommand,
+            '/firmware/regulator_range_cmd',
+            self._on_regulator_range_cmd,
+            10,
         )
 
         self._piston_targets = {pid: None for pid in protocol.PISTON_IDS}
+        # Mode itself is ground truth from firmware telemetry (ab_modes below);
+        # this only remembers the last PID target we sent, since TEL reports
+        # the mode but not the numeric setpoint.
+        self._ab_pid_targets = {ab_id: None for ab_id in protocol.AB_IDS}
         self._last_telemetry_wall_time = None
 
         self._write_lock = threading.Lock()
@@ -138,6 +169,7 @@ class SerialBridgeNode(Node):
                 target is not None
                 and abs(length_mm - target) <= self._at_target_threshold
             )
+            state.homed = telemetry.piston_homed[pid]
             piston_msg.pistons.append(state)
         self._piston_pub.publish(piston_msg)
 
@@ -146,12 +178,20 @@ class SerialBridgeNode(Node):
             state = PressureState()
             state.ab_id = ab_id
             state.pressure_kpa = telemetry.pressures_kpa[ab_id]
-            # The bridge only ever commands a duty cycle, never a target
-            # pressure, so it has no basis for target_pressure_kpa/at_target
-            # -- that belongs to ab_control_node, which owns the
-            # diameter->pressure mapping.
-            state.target_pressure_kpa = 0.0
-            state.at_target = False
+            state.mode = telemetry.ab_modes[ab_id]
+            state.sensor_connected = telemetry.ab_sensor_connected[ab_id]
+            if state.mode == 'pid' and self._ab_pid_targets[ab_id] is not None:
+                target = self._ab_pid_targets[ab_id]
+                state.target_pressure_kpa = target
+                state.at_target = (
+                    abs(state.pressure_kpa - target) <= self._ab_at_target_threshold
+                )
+            else:
+                # Open-loop mode has no pressure target -- ab_control_node
+                # (once implemented) owns the diameter->pressure mapping that
+                # decides duty cycles, not a target pressure.
+                state.target_pressure_kpa = 0.0
+                state.at_target = False
             pressure_msg.pressures.append(state)
         self._pressure_pub.publish(pressure_msg)
 
@@ -164,9 +204,60 @@ class SerialBridgeNode(Node):
         self._piston_targets[msg.id] = msg.target_length_mm
         self._write_line(line)
 
+    def _on_home_cmd(self, msg: HomeCommand):
+        try:
+            line = protocol.format_home_command(msg.id)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        self._write_line(line)
+
+    def _on_piston_range_cmd(self, msg: PistonRangeCommand):
+        try:
+            line = protocol.format_piston_range_command(msg.id, msg.min_mm, msg.max_mm)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        self._write_line(line)
+
     def _on_valve_cmd(self, msg: ValveCommand):
         try:
             line = protocol.format_valve_command(msg.ab_id, msg.duty_pct)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        # Switching to open-loop clears any cached PID target so a stale
+        # target doesn't get reported once the AB is back in PID mode later.
+        self._ab_pid_targets[msg.ab_id] = None
+        self._write_line(line)
+
+    def _on_ab_pid_cmd(self, msg: AbPidCommand):
+        try:
+            line = protocol.format_ab_pid_command(msg.ab_id, msg.target_kpa)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        # Firmware may still reject this (sensor not connected) -- it reports
+        # that via ERR and stays in whatever mode it was already in. We cache
+        # the requested target optimistically here regardless; if the AB's
+        # mode never actually flips to "pid" in telemetry, target_pressure_kpa
+        # is simply never surfaced (see _publish_telemetry).
+        self._ab_pid_targets[msg.ab_id] = msg.target_kpa
+        self._write_line(line)
+
+    def _on_regulator_cmd(self, msg: RegulatorCommand):
+        try:
+            line = protocol.format_regulator_command(msg.regulator_id, msg.target_kpa)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        self._write_line(line)
+
+    def _on_regulator_range_cmd(self, msg: RegulatorRangeCommand):
+        try:
+            line = protocol.format_regulator_range_command(
+                msg.regulator_id, msg.min_kpa, msg.max_kpa
+            )
         except ValueError as exc:
             self.get_logger().error(str(exc))
             return

@@ -52,6 +52,21 @@ intended build order.
   until the second segment is built. See the pin-mapping comment at the top
   of `firmware/inchiscope_mega/src/main.cpp` if that assumption is wrong for
   your bench setup.
+- **Piston homing is required before commanding a piston.** There are no
+  limit switches, so firmware rejects `PISTON` targets for any piston that
+  hasn't been sent a `HOME` command yet (blind full-retract, ~30s at the
+  default 0-100mm range and current step tunables -- shorter/longer if you
+  narrow/widen the range first via `PISTON_RANGE`) -- see
+  `src/inchiscope_serial_bridge/README.md`.
+- **AB regulators are an I2C DAC** (DFRobot GP8403 at address `0x5F`,
+  confirmed from the original pre-ROS2 firmware), not PWM pins -- see
+  `src/inchiscope_serial_bridge/README.md`. `REG_RANGE`/`PISTON_RANGE` let
+  the PC override the default kPa/mm ranges at runtime if the physical
+  hardware ever changes.
+- **AB PID gains in firmware are placeholders.** `AB_PID_KP/KI/KD` in
+  `firmware/inchiscope_mega/src/main.cpp` haven't been tuned against real
+  hardware yet -- same PLACEHOLDER status as the AB pressure ceilings and
+  diameter curve above.
 
 ## Build
 
@@ -121,6 +136,26 @@ ros2 run inchiscope_camera camera_node --ros-args --params-file src/inchiscope_b
 ros2 run inchiscope_camera camera_viewer_node
 ```
 
+### Home a piston, then command it (required order -- see Open items above)
+
+```bash
+ros2 topic pub -1 /firmware/piston_range_cmd inchiscope_msgs/msg/PistonRangeCommand "{id: d1, min_mm: 0.0, max_mm: 100.0}"  # optional, set range before homing
+ros2 topic pub -1 /firmware/home_cmd inchiscope_msgs/msg/HomeCommand "{id: d1}"       # or id: ALL
+ros2 topic echo /firmware/piston_state --once   # check homed: true before commanding
+ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
+```
+
+### Drive an AB (open-loop or firmware PID hold)
+
+```bash
+ros2 topic pub -1 /firmware/regulator_range_cmd inchiscope_msgs/msg/RegulatorRangeCommand "{regulator_id: positive, min_kpa: 0.0, max_kpa: 100.0}"  # optional, matches firmware defaults
+ros2 topic pub -1 /firmware/regulator_cmd inchiscope_msgs/msg/RegulatorCommand "{regulator_id: positive, target_kpa: 80.0}"
+ros2 topic pub -1 /firmware/regulator_cmd inchiscope_msgs/msg/RegulatorCommand "{regulator_id: negative, target_kpa: -60.0}"
+ros2 topic pub /firmware/valve_cmd inchiscope_msgs/msg/ValveCommand "{ab_id: central, duty_pct: 50.0}"     # open-loop, signed -100..100
+ros2 topic pub /firmware/ab_pid_cmd inchiscope_msgs/msg/AbPidCommand "{ab_id: central, target_kpa: 40.0}"  # firmware PID hold
+ros2 topic echo /firmware/pressure_state   # check mode/sensor_connected/at_target
+```
+
 ### Inspect topics / tf
 
 ```bash
@@ -129,7 +164,6 @@ ros2 topic echo /firmware/piston_state
 ros2 topic echo /aurora/sensor_0/pose_relative_to_reference
 ros2 topic hz /aurora/sensor_0/pose
 ros2 topic hz /camera/image_raw
-ros2 topic pub /firmware/piston_cmd inchiscope_msgs/msg/PistonCommand "{id: d1, target_length_mm: 45.0}"
 ros2 run tf2_ros tf2_echo aurora_field aurora_reference
 ```
 
