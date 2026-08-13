@@ -32,22 +32,31 @@ tan(half_FOV_degrees)) / squares_across` -- but this camera's exact FOV/
 working distance weren't available from a datasheet here, so treat the
 five printed sizes as a testing range rather than a computed answer. Hold
 each cutout at the distance where the live camera view is sharpest and see
-which one fills a good fraction of the real ~320x320 content (see the
-crop notes in `inchiscope_camera/README.md` -- calibrate on the cropped
-feed, not the raw capture, which pads that content out to 1280x720 with a
-black border) without corners falling outside it.
+which one fills a good fraction of the real content -- confirmed 480x480
+once cropped (see `inchiscope_camera/README.md` and the current
+`crop_x/y/width/height` in `inchiscope_bringup/config/params.yaml`) --
+without corners falling outside it.
 
 ## 2. Capture calibration frames
 
 ```bash
-python3 calibrate_camera.py capture --device /dev/video0 --square-size-mm <the size you printed> --out-dir calib_frames/
+python3 calibrate_camera.py capture --device /dev/video0 --width 1280 --height 720 \
+    --crop-x 391 --crop-y 111 --crop-width 480 --crop-height 480 \
+    --square-size-mm <the size you printed> --out-dir calib_frames/
 ```
 
-Live-views the camera; SPACE grabs a frame when the board is detected
-(drawn in colour on the corners), 'q' finishes. Move and tilt the board
-between captures -- corners near every edge of the frame, and a real range
-of tilt angles, not just flat-on shots centred in frame. 15-25 good
-captures is typical; fewer than 10 will print a warning.
+The `--width`/`--height`/`--crop-*` values must match whatever
+`camera_node` is actually configured with in `params.yaml` -- this script
+opens the raw device directly, so without the same crop it would calibrate
+against the padded pre-crop frame instead of what `/camera/image_raw`
+actually publishes.
+
+Live-views the camera (already cropped to the real 480x480 content); SPACE
+grabs a frame when the board is detected (drawn in colour on the corners),
+'q' finishes. Move and tilt the board between captures -- corners near
+every edge of the frame, and a real range of tilt angles, not just flat-on
+shots centred in frame. 15-25 good captures is typical; fewer than 10 will
+print a warning.
 
 ## 3. Run calibration
 

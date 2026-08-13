@@ -83,19 +83,21 @@ intended build order.
   reference below); come back to `AB_PID` once open-loop control is
   confirmed working, and expect to iterate on gains and possibly flip a
   sign before trusting it unattended.
-- **Camera crop is unset (`PLACEHOLDER`).** The NanEye sensor's real
+- **Camera crop is set and confirmed working.** The NanEye sensor's real
   content is only ~320x320; the capture card pads that with a black border
   (plus a logo/info overlay in part of it) out to whichever resolution is
   requested. **Bench-confirmed: requesting a non-16:9 size (`640x480`, this
   device's smallest overall) made the squash worse, not better** --
-  presumably this ISP only pads/scales correctly for a 16:9 target. Default
-  is now `1280x720` (the smallest exact-16:9 size this capture card
-  offers, vs `1360x768` which is only approximately 16:9). `camera_node`'s
-  `crop_x/y/width/height` params still need measuring by hand against a
-  saved frame at this resolution before `/camera/image_raw` is actually
-  just real content -- see `src/inchiscope_camera/README.md`. Calibration
-  (`src/inchiscope_camera/scripts/`) should happen *after* this crop is
-  set, against the cropped feed, not before.
+  presumably this ISP only pads/scales correctly for a 16:9 target. Capture
+  resolution is `1280x720` (the smallest exact-16:9 size this device
+  offers, vs `1360x768` which is only approximately 16:9); `camera_node`'s
+  `crop_x/y/width/height` are set in `params.yaml` (`391,111,480,480`) and
+  confirmed to publish a clean 480x480 square with no border or logo. See
+  `src/inchiscope_camera/README.md` if this ever needs re-measuring (e.g.
+  different capture-card hardware, or a resolution change). Calibration
+  (`src/inchiscope_camera/scripts/`) can now proceed against this cropped
+  feed -- `calibrate_camera.py capture` takes matching `--crop-*` flags so
+  it captures the same content `camera_node` actually publishes.
 
 ## Build
 

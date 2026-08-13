@@ -29,16 +29,22 @@
   **`crop_x`/`crop_y`/`crop_width`/`crop_height`** cut the black
   border/logo out of the published image, since leaving it in wastes
   compute on non-image pixels through every downstream step the same way
-  the oversized resolution did. Disabled (all `0`) by default -- part of
-  the border isn't pure black (the logo/info overlay), which rules out a
-  simple auto-detect-the-black-border approach, so these are set manually:
-  1. Run `camera_node` at whatever resolution you intend to use (the
-     `1280x720` default), then save one frame -- e.g.
-     `ros2 run inchiscope_camera camera_viewer_node`, screenshot it, or add
-     a one-off `cv2.imwrite()` -- and open it in any image editor that
-     shows pixel coordinates on hover.
+  the oversized resolution did. Part of the border isn't pure black (the
+  logo/info overlay), which rules out a simple auto-detect-the-black-border
+  approach, so these are set manually. **Confirmed working: `391, 111, 480,
+  480`** -- `/camera/image_raw` publishes a clean 480x480 square with no
+  border or logo. To re-measure (e.g. different capture-card hardware, or
+  after a resolution change):
+  1. Run `camera_node` at whatever resolution you intend to use, then save
+     one frame -- e.g. `ros2 run inchiscope_camera camera_viewer_node`,
+     screenshot it, or add a one-off `cv2.imwrite()` -- and open it in any
+     image editor that shows pixel coordinates on hover.
   2. Find the top-left and bottom-right corners of the real image content,
-     avoiding the border and the logo/info overlay.
+     avoiding the border and the logo/info overlay. **The real content is
+     square** -- if your measured `crop_width` and `crop_height` come out
+     noticeably different from each other, that's a sign the box still
+     includes some border and needs tightening, not that the content
+     itself is rectangular.
   3. Set `crop_x`/`crop_y` to that top-left corner and
      `crop_width`/`crop_height` to the content's size, in `params.yaml`.
   4. Relaunch and check `/camera/image_raw` now shows only real content --

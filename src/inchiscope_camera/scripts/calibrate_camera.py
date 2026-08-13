@@ -12,8 +12,16 @@ Two subcommands:
                 /camera/camera_info TODO).
 
 Usage:
-    python3 calibrate_camera.py capture --device /dev/video0 --square-size-mm 3.0 --out-dir calib_frames/
+    python3 calibrate_camera.py capture --device /dev/video0 --width 1280 --height 720 \
+        --crop-x 391 --crop-y 111 --crop-width 480 --crop-height 480 \
+        --square-size-mm 3.0 --out-dir calib_frames/
     python3 calibrate_camera.py calibrate --frames-dir calib_frames/ --square-size-mm 3.0 --out camera_info.yaml
+
+`capture`'s --crop-* args must match whatever camera_node is actually
+configured with (see inchiscope_bringup/config/params.yaml) -- this script
+opens the raw device directly, so without the same crop it would calibrate
+against the padded pre-crop frame instead of what /camera/image_raw
+actually publishes. Left at 0 (disabled) by default.
 
 --square-size-mm must match whichever printed board size you actually used
 (see generate_calibration_target.py) -- get this wrong and every downstream
@@ -64,6 +72,18 @@ def cmd_capture(args):
         print(f'Failed to open {args.device}', file=sys.stderr)
         sys.exit(1)
 
+    crop = None
+    if args.crop_width > 0 and args.crop_height > 0:
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if args.crop_x + args.crop_width > actual_w or args.crop_y + args.crop_height > actual_h:
+            print(f'crop region ({args.crop_x},{args.crop_y},{args.crop_width}x{args.crop_height}) '
+                  f'does not fit inside the {actual_w}x{actual_h} capture -- ignoring crop',
+                  file=sys.stderr)
+        else:
+            crop = (args.crop_x, args.crop_y, args.crop_width, args.crop_height)
+            print(f'Cropping to {args.crop_width}x{args.crop_height} at ({args.crop_x},{args.crop_y})')
+
     saved = 0
     print("SPACE = capture when the board is detected (drawn in colour), "
           "q = finish. Move/tilt the board between captures to cover the "
@@ -73,6 +93,9 @@ def cmd_capture(args):
         ok, frame = cap.read()
         if not ok:
             continue
+        if crop is not None:
+            x, y, w, h = crop
+            frame = frame[y:y + h, x:x + w]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         found, corners = find_corners(gray, args.corners_x, args.corners_y)
         display = frame.copy()
@@ -191,6 +214,10 @@ def main():
     p_capture.add_argument('--pixel-format', default='MJPG')
     p_capture.add_argument('--width', type=int, default=0)
     p_capture.add_argument('--height', type=int, default=0)
+    p_capture.add_argument('--crop-x', type=int, default=0)
+    p_capture.add_argument('--crop-y', type=int, default=0)
+    p_capture.add_argument('--crop-width', type=int, default=0)
+    p_capture.add_argument('--crop-height', type=int, default=0)
     p_capture.add_argument('--out-dir', default='calib_frames')
     p_capture.set_defaults(func=cmd_capture)
 
