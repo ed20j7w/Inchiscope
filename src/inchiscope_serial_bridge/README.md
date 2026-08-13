@@ -26,6 +26,41 @@ computes its blind-retract duration from whatever range is configured at
 that moment, so narrowing the range also shortens homing, and widening it
 lengthens homing -- set the range you want *before* homing, not after.
 
+## Piston speed
+
+Settable via `PistonSpeedCommand` on `/firmware/piston_speed_cmd` (`mm_per_s`,
+specific piston or `ALL`), same before-not-after caveat as range: it also
+feeds the next `HOME`'s duration calculation. Default is `60mm/s`.
+
+The actuators are Actuonix S20-38 linear steppers; firmware drives them via
+a plain H-bridge in a fixed full-step commutation pattern (`stepMotorUp`/
+`stepMotorDown`) -- there's no `STEP`/`DIR`/microstep-select signal, so only
+the full-step portion of the actuator's published load curve is reachable.
+At 640mA that's roughly 55-120mm/s for ~6.5N down to ~1.3N; well below that
+range the curve climbs past 10N (up to ~13-18N near 1mm/s) since running
+slower than the "suggested full-step zone" only costs smoothness, not
+force -- irrelevant here since the EM tracker's closed loop already
+tolerates the odd missed step. `60mm/s` is the low end of that zone, chosen
+to keep force margin rather than maximize speed, per the project's stated
+priority: a missed step is fine, stalling under load (pressure/resistance
+exceeding available force at the current speed) is a fail state. Increase
+it if bench testing shows more margin than needed; decrease it if it
+doesn't.
+
+Firmware clamps requested speed to `[MIN_PISTON_SPEED_MM_S,
+MAX_PISTON_SPEED_MM_S]` (0.1-120mm/s, the latter being the datasheet's
+charted ceiling) and converts it internally to a step period in
+**microseconds**, not milliseconds like most other timing in this
+firmware -- `millis()` resolution alone caps real achievable speed around
+10mm/s regardless of what's requested, so this needed switching to
+`micros()` to be reachable at all. One thing worth watching for on the
+bench: `readAbPressures()`'s I2C reads (MPRLS conversion wait) run inside
+the same `loop()` at up to 100 Hz and can block for a few ms at a time;
+since a fast piston step period is only ~166µs (at 60mm/s), that blocking
+could measurably reduce the *actual* achieved speed below the commanded
+value if it turns out to matter in practice -- not addressed here, since it
+hasn't been observed as a real problem yet.
+
 ## AB pressure control
 
 Each AB (anchoring balloon) is driven by a single 3-way valve switching
@@ -74,9 +109,10 @@ command firmware actually accepted last.
   `sensor_connected`).
 - In: `/firmware/piston_cmd` (`PistonCommand`), `/firmware/home_cmd`
   (`HomeCommand`), `/firmware/piston_range_cmd` (`PistonRangeCommand`),
-  `/firmware/valve_cmd` (`ValveCommand`), `/firmware/ab_pid_cmd`
-  (`AbPidCommand`), `/firmware/regulator_cmd` (`RegulatorCommand`),
-  `/firmware/regulator_range_cmd` (`RegulatorRangeCommand`).
+  `/firmware/piston_speed_cmd` (`PistonSpeedCommand`), `/firmware/valve_cmd`
+  (`ValveCommand`), `/firmware/ab_pid_cmd` (`AbPidCommand`),
+  `/firmware/regulator_cmd` (`RegulatorCommand`), `/firmware/regulator_range_cmd`
+  (`RegulatorRangeCommand`).
 
 See `firmware/inchiscope_mega/src/main.cpp` for the wire-level command/
 telemetry format and `inchiscope_ros2_architecture.md` section 3 for the

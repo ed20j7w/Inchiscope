@@ -27,6 +27,9 @@
 //                 "PISTON_RANGE <id|ALL> <min_mm> <max_mm>"  sets this
 //                   piston's usable travel; affects clamping AND how long
 //                   the next HOME blind-retract runs for
+//                 "PISTON_SPEED <id|ALL> <mm_per_s>"  sets step rate (also
+//                   affects the next HOME's duration); clamped to
+//                   [MIN_PISTON_SPEED_MM_S, MAX_PISTON_SPEED_MM_S]
 //                 "VALVE <ab_id> <duty_-100_100>" ab_id in {proximal,central,distal};
 //                   open-loop 3-way valve position, always switches this AB
 //                   to open-loop mode
@@ -111,8 +114,24 @@ const uint8_t REG_NEG_DAC_CHANNEL = 1;
 // Tunables
 // ---------------------------------------------------------------------------
 
-const float PISTON_STEP_SIZE_MM = 0.01f;       // mm advanced per stepper microstep
-const unsigned long PISTON_STEP_PERIOD_MS = 2;  // ms between stepper steps
+const float PISTON_STEP_SIZE_MM = 0.01f;  // mm advanced per full step -- matches the Actuonix
+                                           // S20-38 datasheet's "Maximum Force Step Size"
+
+// The driver hardware here is a plain H-bridge toggled directly by
+// stepMotorUp/Down's 4-pin full-step commutation pattern -- there's no
+// STEP/DIR/microstep-select signal, so only the full-step portion of the
+// actuator's speed/force curve is reachable (per the Actuonix S20-38 load
+// curve at 640mA: full step covers roughly 55-120mm/s at ~6.5N down to
+// ~1.3N; well below that, force climbs well past 10N, up to ~13-18N near
+// 1mm/s -- there's no hardware reason not to run slower than 55mm/s, it's
+// just rougher/noisier per step, which doesn't matter given the EM
+// tracker's closed loop already tolerates the odd missed step). Default
+// picked at the low end of the full-step zone for a first cut of margin;
+// override per piston with PISTON_SPEED once bench-verified against the
+// actual mechanical load.
+const float DEFAULT_PISTON_SPEED_MM_S = 60.0f;
+const float MIN_PISTON_SPEED_MM_S = 0.1f;    // arbitrary floor, just avoids a zero/negative period
+const float MAX_PISTON_SPEED_MM_S = 120.0f;  // datasheet's charted ceiling for this actuator
 
 // Default usable piston travel -- the full 0..100mm stroke. Runtime-settable
 // per piston via PISTON_RANGE (see piston_min_mm/piston_max_mm below), since
@@ -168,7 +187,8 @@ float piston_target_mm[PISTON_COUNT];
 float piston_min_mm[PISTON_COUNT];      // runtime-settable via PISTON_RANGE
 float piston_max_mm[PISTON_COUNT];      // runtime-settable via PISTON_RANGE
 int piston_step_index[PISTON_COUNT];
-unsigned long piston_last_step_time[PISTON_COUNT];
+unsigned long piston_last_step_time_us[PISTON_COUNT];
+unsigned long piston_step_period_us[PISTON_COUNT];  // runtime-settable via PISTON_SPEED
 bool piston_homed[PISTON_COUNT];
 bool piston_homing[PISTON_COUNT];
 unsigned long piston_homing_end_ms[PISTON_COUNT];
@@ -226,6 +246,15 @@ int signedDutyToInternalPct(int signed_duty) {
   return (signed_duty + 100) / 2;
 }
 
+// Converts a requested piston speed to a step period in microseconds, not
+// milliseconds like most other timers in this file -- millis() resolution
+// alone caps out around 10mm/s (0.01mm / 1ms), well short of what full step
+// can reach on this actuator.
+unsigned long mmPerSecToStepPeriodUs(float mm_per_s) {
+  mm_per_s = constrain(mm_per_s, MIN_PISTON_SPEED_MM_S, MAX_PISTON_SPEED_MM_S);
+  return (unsigned long)((PISTON_STEP_SIZE_MM / mm_per_s) * 1.0e6f);
+}
+
 // 4-step full-step sequence, reused verbatim from the original firmware.
 void stepMotorUp(const int pins[4], int step) {
   switch (step) {
@@ -250,11 +279,13 @@ void holdMotor(const int pins[4]) {
 }
 
 // Recomputed at HOME time, not compile time, since piston_min_mm/max_mm are
-// runtime-settable via PISTON_RANGE.
+// runtime-settable via PISTON_RANGE and piston_step_period_us is
+// runtime-settable via PISTON_SPEED -- a faster configured speed shortens
+// the blind retract, a slower one lengthens it.
 unsigned long computeHomingDurationMs(int idx) {
   float travel_mm = piston_max_mm[idx] - piston_min_mm[idx];
-  return (unsigned long)((travel_mm / PISTON_STEP_SIZE_MM) * PISTON_STEP_PERIOD_MS *
-                          HOMING_MARGIN_FACTOR);
+  float period_ms = piston_step_period_us[idx] / 1000.0f;
+  return (unsigned long)((travel_mm / PISTON_STEP_SIZE_MM) * period_ms * HOMING_MARGIN_FACTOR);
 }
 
 void startHoming(int idx) {
@@ -263,17 +294,18 @@ void startHoming(int idx) {
   piston_homing_end_ms[idx] = millis() + computeHomingDurationMs(idx);
 }
 
-void servicePistons(unsigned long now) {
+void servicePistons(unsigned long now_ms) {
+  unsigned long now_us = micros();
   for (int i = 0; i < PISTON_COUNT; i++) {
     if (!PISTON_CONNECTED[i]) continue;
-    if (now - piston_last_step_time[i] < PISTON_STEP_PERIOD_MS) continue;
-    piston_last_step_time[i] = now;
+    if (now_us - piston_last_step_time_us[i] < piston_step_period_us[i]) continue;
+    piston_last_step_time_us[i] = now_us;
 
     const int* pins = PISTON_STEP_PINS[i];
     int step = piston_step_index[i] % 4;
 
     if (piston_homing[i]) {
-      if ((long)(now - piston_homing_end_ms[i]) >= 0) {
+      if ((long)(now_ms - piston_homing_end_ms[i]) >= 0) {
         // Long enough to have reached the mechanical bottom even from
         // piston_max_mm[i] -- declare this the zero reference.
         piston_homing[i] = false;
@@ -476,6 +508,52 @@ void handlePistonRangeCommand(const String& args) {
   Serial.println(max_mm, 3);
 }
 
+void handlePistonSpeedCommand(const String& args) {
+  int sep = args.indexOf(' ');
+  if (sep < 0) {
+    Serial.print("ERR malformed PISTON_SPEED: ");
+    Serial.println(args);
+    return;
+  }
+  String id = args.substring(0, sep);
+  float mm_per_s = args.substring(sep + 1).toFloat();
+  if (mm_per_s <= 0.0f) {
+    Serial.print("ERR malformed PISTON_SPEED (must be > 0): ");
+    Serial.println(args);
+    return;
+  }
+  unsigned long period_us = mmPerSecToStepPeriodUs(mm_per_s);
+
+  if (id == "ALL") {
+    for (int i = 0; i < PISTON_COUNT; i++) {
+      if (!PISTON_CONNECTED[i]) continue;
+      piston_step_period_us[i] = period_us;
+    }
+    Serial.print("ACK PISTON_SPEED ALL ");
+    Serial.println(mm_per_s, 3);
+    return;
+  }
+
+  int idx = findPistonIndex(id);
+  if (idx < 0) {
+    Serial.print("ERR unknown piston id: ");
+    Serial.println(id);
+    return;
+  }
+  if (!PISTON_CONNECTED[idx]) {
+    Serial.print("ERR piston not connected: ");
+    Serial.println(id);
+    return;
+  }
+
+  piston_step_period_us[idx] = period_us;
+
+  Serial.print("ACK PISTON_SPEED ");
+  Serial.print(id);
+  Serial.print(' ');
+  Serial.println(mm_per_s, 3);
+}
+
 void handleHomeCommand(const String& args) {
   String id = args;
   id.trim();
@@ -661,6 +739,8 @@ void handleLine(String line) {
     handleHomeCommand(args);
   } else if (cmd == "PISTON_RANGE") {
     handlePistonRangeCommand(args);
+  } else if (cmd == "PISTON_SPEED") {
+    handlePistonSpeedCommand(args);
   } else if (cmd == "VALVE") {
     handleValveCommand(args);
   } else if (cmd == "AB_PID") {
@@ -697,7 +777,8 @@ void setup() {
     piston_length_mm[i] = piston_min_mm[i];
     piston_target_mm[i] = piston_min_mm[i];
     piston_step_index[i] = 0;
-    piston_last_step_time[i] = 0;
+    piston_last_step_time_us[i] = 0;
+    piston_step_period_us[i] = mmPerSecToStepPeriodUs(DEFAULT_PISTON_SPEED_MM_S);
     piston_homed[i] = false;
     piston_homing[i] = false;
     piston_homing_end_ms[i] = 0;

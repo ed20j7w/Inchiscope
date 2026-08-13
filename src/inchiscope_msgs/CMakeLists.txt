@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ValveCommand.msg"
   "msg/HomeCommand.msg"
   "msg/PistonRangeCommand.msg"
+  "msg/PistonSpeedCommand.msg"
   "msg/RegulatorCommand.msg"
   "msg/RegulatorRangeCommand.msg"
   "msg/AbPidCommand.msg"

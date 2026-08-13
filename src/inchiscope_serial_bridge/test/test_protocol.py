@@ -47,6 +47,27 @@ def test_format_piston_range_command_rejects_inverted_range():
         pass
 
 
+def test_format_piston_speed_command():
+    assert protocol.format_piston_speed_command('d1', 60.0) == 'PISTON_SPEED d1 60.000'
+    assert protocol.format_piston_speed_command('ALL', 60.0) == 'PISTON_SPEED ALL 60.000'
+
+
+def test_format_piston_speed_command_rejects_unknown_target():
+    try:
+        protocol.format_piston_speed_command('x9', 60.0)
+        assert False, 'expected ValueError'
+    except ValueError:
+        pass
+
+
+def test_format_piston_speed_command_rejects_non_positive_speed():
+    try:
+        protocol.format_piston_speed_command('d1', 0.0)
+        assert False, 'expected ValueError'
+    except ValueError:
+        pass
+
+
 def test_format_valve_command_clamps_signed_duty():
     assert protocol.format_valve_command('central', 150) == 'VALVE central 100'
     assert protocol.format_valve_command('central', -150) == 'VALVE central -100'

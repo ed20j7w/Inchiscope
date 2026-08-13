@@ -11,6 +11,7 @@ from inchiscope_msgs.msg import (
     HomeCommand,
     PistonCommand,
     PistonRangeCommand,
+    PistonSpeedCommand,
     PistonState,
     PistonStateArray,
     PressureState,
@@ -68,6 +69,9 @@ class SerialBridgeNode(Node):
         )
         self.create_subscription(
             PistonRangeCommand, '/firmware/piston_range_cmd', self._on_piston_range_cmd, 10
+        )
+        self.create_subscription(
+            PistonSpeedCommand, '/firmware/piston_speed_cmd', self._on_piston_speed_cmd, 10
         )
         self.create_subscription(
             ValveCommand, '/firmware/valve_cmd', self._on_valve_cmd, 10
@@ -215,6 +219,14 @@ class SerialBridgeNode(Node):
     def _on_piston_range_cmd(self, msg: PistonRangeCommand):
         try:
             line = protocol.format_piston_range_command(msg.id, msg.min_mm, msg.max_mm)
+        except ValueError as exc:
+            self.get_logger().error(str(exc))
+            return
+        self._write_line(line)
+
+    def _on_piston_speed_cmd(self, msg: PistonSpeedCommand):
+        try:
+            line = protocol.format_piston_speed_command(msg.id, msg.mm_per_s)
         except ValueError as exc:
             self.get_logger().error(str(exc))
             return

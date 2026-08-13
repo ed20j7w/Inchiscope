@@ -34,6 +34,14 @@ def format_piston_range_command(target: str, min_mm: float, max_mm: float) -> st
     return f'PISTON_RANGE {target} {min_mm:.3f} {max_mm:.3f}'
 
 
+def format_piston_speed_command(target: str, mm_per_s: float) -> str:
+    if target != 'ALL' and target not in PISTON_IDS:
+        raise ValueError(f'unknown piston speed target: {target}')
+    if mm_per_s <= 0:
+        raise ValueError(f'mm_per_s ({mm_per_s}) must be > 0')
+    return f'PISTON_SPEED {target} {mm_per_s:.3f}'
+
+
 def format_valve_command(ab_id: str, duty_pct: float) -> str:
     """Open-loop 3-way valve position. Always switches this AB to open-loop
     mode on the firmware, overriding any active AB_PID hold."""
