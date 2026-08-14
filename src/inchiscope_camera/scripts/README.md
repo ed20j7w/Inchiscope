@@ -137,17 +137,37 @@ board at best) -- i.e. it's systemic, not a bad capture or two.
 
 `capture` defaults to **auto-capture** specifically to make this a
 non-issue: rather than you judging how long to hold still (which depends
-on a latency you can't see or measure), it watches the checkerboard
-corners in the live video and only captures once they've stayed put for
-`--stability-window-sec` (default 0.4s). Because that check runs on the
-*lagged* feed itself, it can't fire early -- the feed only starts looking
-stable once it has caught up to a scene that has actually stopped moving,
-whatever the real delay turns out to be. Practically: move to a pose, hold
-roughly steady, wait for the status line to say `STABLE` (it captures the
-instant it does), then move on. `--stability-max-corner-px` (default
-2.0px) is how tight "stopped" means -- loosen it if hand tremor never
-settles under it. SPACE still force-captures manually on top of this;
-`--manual` disables auto-capture entirely and reverts to SPACE-only.
+on a latency you can't see or measure), it requires BOTH the checkerboard
+corners in the live video AND the raw Aurora pose to have stayed put,
+continuously, for `--stability-window-sec` (default 1.0s) before firing.
+Any one of the two drifting past its threshold resets the whole streak, so
+"stable" always means both signals held still *at the same time*. Because
+the video check runs on the *lagged* feed itself, it can't fire early --
+the feed only starts looking stable once it has caught up to a scene that
+has actually stopped moving, whatever the real delay turns out to be. The
+Aurora check catches a second, independent problem: the tracker itself
+being too noisy to trust at the current spot (nearby metal, distance from
+the field generator) -- if it never settles even with a genuinely still
+hand, that's diagnostic on its own (see below).
+
+Practically: move to a pose, hold still, wait for the status line to say
+`STABLE` (it captures the instant it does), then move on. Tunables:
+`--stability-max-corner-px` (default 2.0px, video), `--stability-max-
+aurora-pos-mm` (default 0.5mm) and `--stability-max-aurora-rot-deg`
+(default 0.3deg) for Aurora. Loosen the corner one if hand tremor never
+settles under it; do *not* casually loosen the Aurora ones just to make it
+capture faster -- see the noise-floor note below first. SPACE still
+force-captures manually on top of this; `--manual` disables auto-capture
+entirely and reverts to SPACE-only.
+
+If the status line's Aurora jitter never drops below its threshold even
+though your hand is genuinely still, that's telling you something real:
+the Aurora reading is noisy or biased at this physical location, most
+likely from nearby metal or distance/orientation relative to the field
+generator. No amount of capture technique fixes that -- move the whole
+setup to a cleaner spot (away from the capture card, laptop, metal desk,
+etc., and closer to the field generator) and see if the jitter number
+drops before trying to calibrate again.
 
 On success `solve` writes `hand_eye_transform.yaml` and prints the exact
 `static_transform_publisher` arguments (as `--x/--y/--z` +
