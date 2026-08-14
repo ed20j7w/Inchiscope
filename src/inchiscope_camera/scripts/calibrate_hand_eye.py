@@ -256,6 +256,7 @@ def cmd_solve(args):
 
     R_gripper2base, t_gripper2base = [], []
     R_target2cam, t_target2cam = [], []
+    used_frame_names = []
     used, skipped = 0, 0
 
     for cap in captures:
@@ -287,6 +288,7 @@ def cmd_solve(args):
 
         R_gripper2base.append(quat_to_rotmat(*cap['orientation_xyzw']))
         t_gripper2base.append(np.array(cap['position'], dtype=np.float64))
+        used_frame_names.append(cap['frame'])
         used += 1
 
     print(f'Used {used}/{len(captures)} captures, skipped {skipped}')
@@ -294,7 +296,7 @@ def cmd_solve(args):
         print('Fewer than 3 usable captures -- cannot solve.', file=sys.stderr)
         sys.exit(1)
 
-    def checkerboard_pose_spread(R_x, t_x):
+    def checkerboard_positions(R_x, t_x, indices):
         """Since the checkerboard is physically fixed relative to the
         reference frame all session, T_base2target_i should come out
         (near-)identical for every capture if the solved hand-eye
@@ -304,7 +306,7 @@ def cmd_solve(args):
         which mainly re-validates the earlier intrinsic calibration/PnP
         step."""
         positions = []
-        for i in range(used):
+        for i in indices:
             T_base2gripper = np.eye(4)
             T_base2gripper[:3, :3] = R_gripper2base[i]
             T_base2gripper[:3, 3] = t_gripper2base[i]
@@ -316,21 +318,29 @@ def cmd_solve(args):
             T_target2cam[:3, 3] = t_target2cam[i]
             T_base2target = T_base2gripper @ T_cam2gripper @ T_target2cam
             positions.append(T_base2target[:3, 3])
-        positions = np.array(positions)
+        return np.array(positions)
+
+    def spread_of(R_x, t_x, indices):
+        positions = checkerboard_positions(R_x, t_x, indices)
         return positions.std(axis=0), (positions.max(0) - positions.min(0))
+
+    def solve_subset(indices, method):
+        R_x, t_x = cv2.calibrateHandEye(
+            [R_gripper2base[i] for i in indices], [t_gripper2base[i] for i in indices],
+            [R_target2cam[i] for i in indices], [t_target2cam[i] for i in indices],
+            method=method,
+        )
+        return R_x, t_x.ravel()
+
+    all_indices = list(range(used))
 
     print()
     print('Cross-checking all 5 calibrateHandEye methods (should roughly '
           'agree if the capture set is good):')
     results = {}
     for name, method in HAND_EYE_METHODS:
-        R_x, t_x = cv2.calibrateHandEye(
-            R_gripper2base, t_gripper2base,
-            R_target2cam, t_target2cam,
-            method=method,
-        )
-        t_x = t_x.ravel()
-        std, spread = checkerboard_pose_spread(R_x, t_x)
+        R_x, t_x = solve_subset(all_indices, method)
+        std, spread = spread_of(R_x, t_x, all_indices)
         results[name] = (R_x, t_x, std, spread)
         print(f'  {name:12s} checkerboard-in-reference std={std * 1000} mm  '
               f'max-min={spread * 1000} mm')
@@ -338,13 +348,39 @@ def cmd_solve(args):
     R_final, t_final, std_final, spread_final = results[args.method]
     print()
     print(f'Using {args.method} as the final result.')
-    if np.max(spread_final) * 1000 > args.max_spread_warn_mm:
+    baseline_max_spread_mm = np.max(spread_final) * 1000
+    if baseline_max_spread_mm > args.max_spread_warn_mm:
         print(f'WARNING: checkerboard-in-reference spread exceeds '
               f'{args.max_spread_warn_mm}mm (max axis '
-              f'{np.max(spread_final) * 1000:.2f}mm) -- this usually means '
+              f'{baseline_max_spread_mm:.2f}mm) -- this usually means '
               f'the checkerboard moved during capture, too few/too '
               f'rotation-poor poses, or a bad pose/frame pairing. Re-capture '
               f'before trusting this result.', file=sys.stderr)
+
+        print()
+        print(f'Leave-one-out diagnostic ({args.method}) -- re-solving with '
+              f'each single capture dropped, to see if a handful of bad '
+              f'frames (vs. a systemic issue) are driving the error:')
+        scores = []
+        for i in all_indices:
+            subset = [j for j in all_indices if j != i]
+            R_x, t_x = solve_subset(subset, args.method)
+            _, spread = spread_of(R_x, t_x, subset)
+            scores.append((np.max(spread) * 1000, i))
+        scores.sort()
+        best_score = scores[0][0]
+        print(f'  baseline (all {used} captures): max-spread = {baseline_max_spread_mm:.2f}mm')
+        for score, i in scores[:10]:
+            print(f'  drop {used_frame_names[i]:20s} -> max-spread = {score:7.2f}mm '
+                  f'(improvement {baseline_max_spread_mm - score:+.2f}mm)')
+        if baseline_max_spread_mm - best_score > 0.5 * baseline_max_spread_mm:
+            print(f'  -> dropping {used_frame_names[scores[0][1]]} alone recovers most of the '
+                  f'error -- that single capture is likely bad (mistimed pose, '
+                  f'momentary bump, motion blur). Remove it from poses.yaml/the '
+                  f'frame directory and re-run solve.')
+        else:
+            print(f'  -> no single capture explains most of the error -- this looks '
+                  f'systemic rather than a bad frame or two. See the notes below.')
 
     quat = rotmat_to_quat(R_final)
     out = {
