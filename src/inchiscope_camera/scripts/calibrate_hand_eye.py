@@ -333,6 +333,7 @@ def cmd_solve(args):
         return R_x, t_x.ravel()
 
     all_indices = list(range(used))
+    method_by_name = dict(HAND_EYE_METHODS)
 
     print()
     print('Cross-checking all 5 calibrateHandEye methods (should roughly '
@@ -364,7 +365,7 @@ def cmd_solve(args):
         scores = []
         for i in all_indices:
             subset = [j for j in all_indices if j != i]
-            R_x, t_x = solve_subset(subset, args.method)
+            R_x, t_x = solve_subset(subset, method_by_name[args.method])
             _, spread = spread_of(R_x, t_x, subset)
             scores.append((np.max(spread) * 1000, i))
         scores.sort()
