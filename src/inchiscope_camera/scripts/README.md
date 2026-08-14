@@ -114,10 +114,42 @@ pose is across all captures -- since the board never actually moved during
 the session, that inferred pose should come out (near-)identical every
 time if the solve is correct. A large spread (warns above 2mm on any axis
 by default) usually means the board moved, too few/too rotation-poor
-poses were captured, or a pose/frame got mismatched -- re-capture rather
-than trusting a noisy result.
+poses were captured, or a pose/frame got mismatched.
 
-On success it writes `hand_eye_transform.yaml` and prints the exact
+If the warning fires, it also runs a **leave-one-out diagnostic**:
+re-solves once per capture with that capture excluded, to tell you whether
+a single bad capture is responsible (dropping it recovers most of the
+error -- remove it and re-run `solve`) or the error is spread across most
+captures (recapture, or see the capture-card latency note below).
+
+### Capture-card latency
+
+If a USB capture card sits between the NanEye and `/camera/image_raw`, it
+can buffer frames and make the topic lag the physical scene by a
+noticeable amount (100ms+, sometimes much more). Since `capture`'s
+timestamp-freshness check only compares the image and pose *message*
+timestamps to each other, it cannot detect this -- both can look "fresh"
+relative to each other while the image content itself is stale relative
+to where the rig actually is *right now*. Symptom: `solve`'s spread stays
+too high (mm-level) even when captured carefully, and the leave-one-out
+diagnostic finds no single bad frame (a few mm improvement across the
+board at best) -- i.e. it's systemic, not a bad capture or two.
+
+`capture` defaults to **auto-capture** specifically to make this a
+non-issue: rather than you judging how long to hold still (which depends
+on a latency you can't see or measure), it watches the checkerboard
+corners in the live video and only captures once they've stayed put for
+`--stability-window-sec` (default 0.4s). Because that check runs on the
+*lagged* feed itself, it can't fire early -- the feed only starts looking
+stable once it has caught up to a scene that has actually stopped moving,
+whatever the real delay turns out to be. Practically: move to a pose, hold
+roughly steady, wait for the status line to say `STABLE` (it captures the
+instant it does), then move on. `--stability-max-corner-px` (default
+2.0px) is how tight "stopped" means -- loosen it if hand tremor never
+settles under it. SPACE still force-captures manually on top of this;
+`--manual` disables auto-capture entirely and reverts to SPACE-only.
+
+On success `solve` writes `hand_eye_transform.yaml` and prints the exact
 `static_transform_publisher` arguments (as `--x/--y/--z` +
 `--qx/--qy/--qz/--qw`, more precise than roll/pitch/yaw for an arbitrary
 rotation) to paste into `camera_and_aurora.launch.py`'s and

@@ -7,9 +7,15 @@ transform in camera_and_aurora.launch.py / inchiscope.launch.py
 
 Two subcommands:
     capture     ROS2 node: live view against /camera/image_raw with a
-                checkerboard overlay; SPACE grabs an (image, Aurora pose)
-                pair when the board is detected AND a fresh pose is
-                available, 'q' finishes. Saves frames + a poses.yaml
+                checkerboard overlay. By default AUTO-CAPTURES an (image,
+                Aurora pose) pair once the board has stopped moving in the
+                (possibly lagged) video for --stability-window-sec -- this
+                self-adapts to whatever the capture card's actual latency
+                is, without needing to know or guess it, since a lagged
+                feed only *looks* stable once it's caught up to a scene
+                that really has stopped changing. SPACE still force-
+                captures manually (--manual disables auto-capture
+                entirely). 'q' finishes. Saves frames + a poses.yaml
                 manifest into --out-dir.
     solve       Offline OpenCV/numpy: runs cv2.calibrateHandEye() over the
                 captures, cross-checks all 5 supported methods for
@@ -47,6 +53,11 @@ Physical procedure -- read before capturing:
   the board may still look "detected fine" in every frame.
 - 15-20+ good captures is typical, matching the corner-detection/pose
   variety guidance already used for `calibrate_camera.py`.
+- If a USB capture card is in the loop, its buffering can make
+  `/camera/image_raw` lag the physical scene by a noticeable amount
+  (100ms+). Capturing the instant you feel steady risks pairing a
+  still-in-motion frame with an already-settled Aurora pose. Auto-capture
+  (the default -- see below) exists specifically to make this a non-issue.
 - Board size/corner count defaults match `calibrate_camera.py` and
   `generate_calibration_target.py` (9x6 internal corners) -- override with
   --corners-x/--corners-y if a different board was printed, and
@@ -65,6 +76,7 @@ transform with `--frame-id aurora_sensor_0 --child-frame-id naneye_camera`.
 import argparse
 import os
 import sys
+import time
 
 import cv2
 import numpy as np
@@ -149,11 +161,41 @@ def cmd_capture(args):
     node = HandEyeCaptureNode()
     captures = []
     saved = 0
-    print("Checkerboard must stay FIXED for the whole session -- only move "
-          "the camera+Aurora-sensor assembly. SPACE = capture when the "
-          "board is detected (drawn in colour) and the pose reading is "
-          "fresh, q = finish. Cover a real range of rotation, not just "
-          "translation -- 15-20 good captures is typical.")
+    stable_anchor = None  # corners (Nx2) the current stability streak is measured against
+    stable_since = None  # monotonic time the anchor was last (re)set
+    armed = True  # re-armed by any detected motion; disarmed right after a capture
+
+    if args.auto_capture:
+        print("Checkerboard must stay FIXED for the whole session -- only "
+              "move the camera+Aurora-sensor assembly. AUTO-CAPTURE is on: "
+              "move to a pose, hold roughly still, and it captures on its "
+              "own once the board has genuinely stopped moving in the video "
+              f"for {args.stability_window_sec:.1f}s (this naturally waits "
+              "out however much the capture card actually lags by -- no "
+              "need to guess a pause length). SPACE still force-captures "
+              "manually, q finishes. Cover a real range of rotation, not "
+              "just translation -- 15-20 good captures is typical.")
+    else:
+        print("Checkerboard must stay FIXED for the whole session -- only move "
+              "the camera+Aurora-sensor assembly. SPACE = capture when the "
+              "board is detected (drawn in colour) and the pose reading is "
+              "fresh, q = finish. Cover a real range of rotation, not just "
+              "translation -- 15-20 good captures is typical.")
+
+    def do_capture(frame, pose, pose_age):
+        nonlocal saved
+        fname = f'frame_{saved:03d}.png'
+        cv2.imwrite(os.path.join(args.out_dir, fname), frame)
+        p = pose.position
+        q = pose.orientation
+        captures.append({
+            'frame': fname,
+            'position': [float(p.x), float(p.y), float(p.z)],
+            'orientation_xyzw': [float(q.x), float(q.y), float(q.z), float(q.w)],
+        })
+        saved += 1
+        print(f'captured {fname} (pose_age={pose_age * 1000:.0f}ms)')
+
     try:
         while rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.02)
@@ -169,9 +211,40 @@ def cmd_capture(args):
             pose_age = None
             if node.latest_pose_stamp is not None and node.latest_image_stamp is not None:
                 pose_age = abs(stamp_to_sec(node.latest_image_stamp) - stamp_to_sec(node.latest_pose_stamp))
+            pose_ok = node.latest_pose is not None and pose_age is not None and pose_age <= args.max_pose_age_sec
+
+            # Stability: an anchor is set the first time corners are seen
+            # (or whenever they've drifted too far from the current
+            # anchor); once corners have stayed within
+            # stability_max_corner_px of that anchor for a continuous
+            # stability_window_sec, we call it stable. This is checked
+            # against *this* (possibly lagged) video feed, so a genuinely-
+            # stopped scene only starts looking stable once the lagged
+            # feed has caught up to it -- self-adapting to whatever the
+            # real capture-card delay is without needing to know its value.
+            now = time.monotonic()
+            is_stable = False
+            jitter_px = None
+            if found:
+                pts = corners.reshape(-1, 2)
+                if stable_anchor is None or np.abs(pts - stable_anchor).max() > args.stability_max_corner_px:
+                    stable_anchor = pts
+                    stable_since = now
+                jitter_px = float(np.abs(pts - stable_anchor).max())
+                is_stable = (now - stable_since) >= args.stability_window_sec
+            else:
+                stable_anchor = None
+                stable_since = None
+            if not is_stable:
+                armed = True
 
             status = f'saved: {saved}'
             status += '  NO POSE' if pose_age is None else f'  pose_age={pose_age * 1000:.0f}ms'
+            if args.auto_capture:
+                if jitter_px is None:
+                    status += '  settling...'
+                else:
+                    status += f'  jitter={jitter_px:.1f}px' + ('  STABLE' if is_stable else '  hold still')
             colour = (0, 255, 0) if found else (0, 0, 255)
             cv2.putText(display, status, (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
             cv2.imshow('calibrate_hand_eye - capture', display)
@@ -179,28 +252,21 @@ def cmd_capture(args):
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
-            if key == ord(' '):
+
+            auto_fire = args.auto_capture and found and is_stable and armed and pose_ok
+            if key == ord(' ') or auto_fire:
                 if not found:
                     print('  no checkerboard detected, not captured')
                     continue
                 if node.latest_pose is None:
                     print('  no Aurora pose received yet, not captured')
                     continue
-                if pose_age is None or pose_age > args.max_pose_age_sec:
+                if not pose_ok:
                     age_str = 'unknown' if pose_age is None else f'{pose_age:.3f}s'
                     print(f'  pose too stale ({age_str} > {args.max_pose_age_sec}s), not captured')
                     continue
-                fname = f'frame_{saved:03d}.png'
-                cv2.imwrite(os.path.join(args.out_dir, fname), frame)
-                p = node.latest_pose.position
-                q = node.latest_pose.orientation
-                captures.append({
-                    'frame': fname,
-                    'position': [float(p.x), float(p.y), float(p.z)],
-                    'orientation_xyzw': [float(q.x), float(q.y), float(q.z), float(q.w)],
-                })
-                saved += 1
-                print(f'captured {fname} (pose_age={pose_age * 1000:.0f}ms)')
+                do_capture(frame, node.latest_pose, pose_age)
+                armed = False
     finally:
         cv2.destroyAllWindows()
         node.destroy_node()
@@ -419,6 +485,10 @@ def main():
     p_capture = sub.add_parser('capture', parents=[common])
     p_capture.add_argument('--pose-topic', default='/aurora/sensor_0/pose_relative_to_reference')
     p_capture.add_argument('--max-pose-age-sec', type=float, default=0.1, help='reject a capture if the freshest Aurora pose is older than this relative to the image (default: 0.1s)')
+    p_capture.add_argument('--auto-capture', dest='auto_capture', action='store_true', default=True, help='auto-capture once the board has stopped moving in the video for --stability-window-sec (default: on). SPACE still works alongside it as a manual override.')
+    p_capture.add_argument('--manual', dest='auto_capture', action='store_false', help='disable auto-capture; only capture on SPACE (old behaviour)')
+    p_capture.add_argument('--stability-window-sec', type=float, default=0.4, help='how long the board must look motionless in the live video before auto-capture fires (default: 0.4s) -- this implicitly waits out whatever the capture card/driver latency actually is, since a genuinely-stopped scene only looks stable once the lagged video catches up to it')
+    p_capture.add_argument('--stability-max-corner-px', type=float, default=2.0, help='max per-corner pixel movement within the stability window to count as "stopped" (default: 2.0px) -- loosen this if hand tremor never settles below it')
     p_capture.add_argument('--out-dir', default='handeye_frames')
     p_capture.set_defaults(func=cmd_capture)
 
