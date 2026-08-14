@@ -13,6 +13,12 @@ Launch arguments:
         full-stack launch shouldn't always pop a GUI; see aurora.launch.py
         for a bench-test launch with it on by default.
     rviz_config (default: rviz/aurora.rviz in this package's share dir).
+
+Also publishes a static, zero-offset PLACEHOLDER transform from
+aurora_sensor_0 to naneye_camera -- see camera_and_aurora.launch.py's
+docstring for why (RViz's Camera display needs *some* transform to resolve
+the image's frame, and this hasn't been properly hand-eye/mechanically
+calibrated yet).
 """
 
 import os
@@ -61,6 +67,18 @@ def generate_launch_description():
             )
             for package, executable in nodes
         ],
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='naneye_camera_placeholder_tf',
+            output='screen',
+            arguments=[
+                '--x', '0', '--y', '0', '--z', '0',
+                '--roll', '0', '--pitch', '0', '--yaw', '0',
+                '--frame-id', 'aurora_sensor_0',
+                '--child-frame-id', 'naneye_camera',
+            ],
+        ),
         Node(
             package='rviz2',
             executable='rviz2',

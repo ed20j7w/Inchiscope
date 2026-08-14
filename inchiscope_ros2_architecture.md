@@ -359,6 +359,13 @@ string current_phase
 - `camera_viewer_node` — added beyond the original spec: a separate node subscribing to
   `/camera/image_raw` and showing it in a `cv2.imshow` window, kept out of `camera_node` itself
   so the capture/publish path can run headless. See `src/inchiscope_camera/README.md`.
+- **`aurora_sensor_0` → `naneye_camera` static transform** — `camera_and_aurora.launch.py` and
+  `inchiscope.launch.py` publish this as a zero-offset `PLACEHOLDER` (`tf2_ros
+  static_transform_publisher`), since the camera and 6D EM sensor are mounted together at the
+  distal tip (per the manuscript) but their exact rigid offset has never been measured. Needed for
+  RViz's `Camera` display (not the simpler `Image` display, which needs no TF) to resolve
+  `naneye_camera` at all; also relevant to reconstruction accuracy later, since it's the gap
+  between where the EM tracker says the tip is and where the camera actually sits.
 
 ### `inchiscope_bringup`
 - Launch files: `phase1_bridge.launch.py`, `aurora.launch.py` (+ optional RViz, `use_rviz` arg),

@@ -102,6 +102,19 @@ intended build order.
   recalibrating. See `src/inchiscope_camera/README.md` for how to
   re-measure the crop if this ever needs redoing (different capture-card
   hardware, or a resolution change).
+- **Camera-to-EM-sensor transform is a zero-offset `PLACEHOLDER`.**
+  `camera_and_aurora.launch.py` and `inchiscope.launch.py` publish a static
+  transform from `aurora_sensor_0` to `naneye_camera` so RViz's `Camera`
+  display (if used instead of the simpler `Image` display) can resolve the
+  image's frame at all -- without *some* transform it errors with `Frame
+  [naneye_camera] does not exist`. The camera and 6D EM sensor are mounted
+  together at the distal tip (per the manuscript) but their exact rigid
+  offset has never been measured -- treating them as co-located is wrong,
+  just less broken than not publishing anything. Replace with the real
+  offset once a proper hand-eye/mechanical calibration is done; this
+  matters for reconstruction accuracy too, not just RViz, since it's the
+  offset between where the EM tracker says the tip is and where the camera
+  that's actually seeing the scene sits.
 
 ## Build
 
