@@ -362,6 +362,45 @@ def cmd_solve(args):
         print('Fewer than 3 usable captures -- cannot solve.', file=sys.stderr)
         sys.exit(1)
 
+    def rotation_diversity_report():
+        """Tsai-Lenz-family solvers need the *rotation axes* of the
+        relative motions between captures to genuinely span 3D -- if every
+        capture only rotated about two of three axes (e.g. never rolling
+        the endoscope tip about its own long axis), the component of the
+        hand-eye transform along the missing axis is poorly constrained,
+        which shows up as an error concentrated on one axis rather than
+        spread evenly -- a different signature than a bad frame or a
+        pose/image timing issue."""
+        axes = []
+        angles_deg = []
+        for i in range(used):
+            for j in range(i + 1, used):
+                R_rel = R_gripper2base[i].T @ R_gripper2base[j]
+                rvec, _ = cv2.Rodrigues(R_rel)
+                angle = np.linalg.norm(rvec)
+                if angle < 1e-6:
+                    continue
+                axes.append((rvec / angle).ravel())
+                angles_deg.append(np.degrees(angle))
+        axes = np.array(axes)
+        angles_deg = np.array(angles_deg)
+        _, s, vt = np.linalg.svd(axes, full_matrices=False)
+        print(f'Rotation diversity: pairwise relative rotations span '
+              f'{angles_deg.min():.1f}-{angles_deg.max():.1f} deg (median '
+              f'{np.median(angles_deg):.1f} deg). Axis spread (SVD singular '
+              f'values, more even = more diverse): {np.round(s, 2)}')
+        if s[-1] < 0.5 * s[0]:
+            print(f'  NOTE: rotation axes are concentrated -- the pose set barely '
+                  f'rotates about direction {np.round(vt[-1], 2)} (in the Aurora '
+                  f'reference frame). That component of the hand-eye transform is '
+                  f'poorly constrained -- if the solve error above is concentrated '
+                  f'on one axis, try adding more rotation about this direction '
+                  f'(e.g. rolling the endoscope tip about its own long axis, if '
+                  f'that\'s the weak one) and re-capture.')
+
+    rotation_diversity_report()
+    print()
+
     def checkerboard_positions(R_x, t_x, indices):
         """Since the checkerboard is physically fixed relative to the
         reference frame all session, T_base2target_i should come out
