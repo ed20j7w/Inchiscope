@@ -77,7 +77,62 @@ reprojection error, so the calibration math itself is sound -- accuracy on
 your actual camera still depends on capture quality (sharp focus, real
 tilt variety, correct square size).
 
-## 4. What the intrinsics feed into next
+## 4. Hand-eye calibration (Aurora sensor <-> camera)
+
+The camera and the Aurora 6D EM sensor are mounted together at the
+endoscope's distal tip, but the rigid offset between them has never been
+measured -- `camera_and_aurora.launch.py`/`inchiscope.launch.py` currently
+publish a zero-offset **PLACEHOLDER** `aurora_sensor_0 -> naneye_camera`
+transform (see those files' docstrings), which treats the two as
+co-located even though they're not. `calibrate_hand_eye.py` solves for the
+real transform via standard `AX=XB` hand-eye calibration
+(`cv2.calibrateHandEye`, Tsai-Lenz by default).
+
+Requires `camera_and_aurora.launch.py` running (needs both
+`/camera/image_raw` and `/aurora/sensor_0/pose_relative_to_reference`
+publishing at once) and the intrinsic calibration above already done (the
+solve step needs `camera_info.yaml` for `solvePnP`).
+
+```bash
+# 1. Capture: hold a checkerboard FIXED and stationary somewhere in view,
+#    then move the endoscope tip by hand through 15-20+ diverse poses --
+#    a real range of rotation, not just translation/sliding -- capturing
+#    an (image, Aurora pose) pair at each with SPACE:
+python3 calibrate_hand_eye.py capture --square-size-mm <the size you printed> --out-dir handeye_frames/
+
+# 2. Solve:
+python3 calibrate_hand_eye.py solve --frames-dir handeye_frames/ \
+    --square-size-mm <same size> \
+    --camera-info ../../inchiscope_bringup/config/camera_info.yaml \
+    --out hand_eye_transform.yaml
+```
+
+`solve` cross-checks all 5 methods OpenCV supports (TSAI/PARK/HORAUD/
+ANDREFF/DANIILIDIS) for rough agreement, then validates the chosen one by
+checking how consistent the *inferred* checkerboard-in-reference-frame
+pose is across all captures -- since the board never actually moved during
+the session, that inferred pose should come out (near-)identical every
+time if the solve is correct. A large spread (warns above 2mm on any axis
+by default) usually means the board moved, too few/too rotation-poor
+poses were captured, or a pose/frame got mismatched -- re-capture rather
+than trusting a noisy result.
+
+On success it writes `hand_eye_transform.yaml` and prints the exact
+`static_transform_publisher` arguments (as `--x/--y/--z` +
+`--qx/--qy/--qz/--qw`, more precise than roll/pitch/yaw for an arbitrary
+rotation) to paste into `camera_and_aurora.launch.py`'s and
+`inchiscope.launch.py`'s placeholder transform, replacing the zero-offset
+one.
+
+Validated against a synthetic hand-eye test (known ground-truth transform,
+15 synthetic poses spanning real rotation): all 5 methods recover the
+ground truth to machine precision, and the checkerboard-pose-spread
+validation metric correctly stays near-zero for the correct transform and
+blows up for a deliberately wrong one -- so the math and validation logic
+are sound; accuracy on the real rig still depends on capture quality
+(board truly fixed, real rotation variety, correct square size).
+
+## 5. What the intrinsics feed into next
 
 See the top-level project discussion for the full reasoning, but briefly:
 `camera_matrix` (K) turns a 2D pixel coordinate into a 3D ray, which is

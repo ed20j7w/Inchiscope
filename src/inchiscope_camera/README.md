@@ -94,3 +94,11 @@ intrinsics** if they don't match -- e.g. if `width`/`height`/the crop
 above are ever changed without recalibrating. Recalibrate and overwrite
 `camera_info.yaml` (or point `camera_info_path` at a new file) any time
 the capture resolution or crop changes.
+
+## Hand-eye calibration
+
+`scripts/calibrate_hand_eye.py` solves for the real rigid transform between
+the Aurora sensor and the camera (both mounted at the endoscope tip),
+replacing the zero-offset PLACEHOLDER `aurora_sensor_0 -> naneye_camera`
+transform published by `camera_and_aurora.launch.py`/`inchiscope.launch.py`
+-- see `scripts/README.md` for the procedure.
