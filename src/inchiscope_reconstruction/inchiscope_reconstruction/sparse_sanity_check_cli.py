@@ -44,8 +44,12 @@ def main():
     parser.add_argument('--pair-stride', type=int, default=5, help='match/triangulate frames this many Stage-2-kept-frames apart, for a wider baseline than adjacent frames (default: 5)')
     parser.add_argument('--ratio', type=float, default=0.75, help="Lowe's ratio test threshold for SIFT matching (default: 0.75)")
     parser.add_argument('--max-epipolar-error-px', type=float, default=3.0, help='discard matches whose epipolar error (against the fundamental matrix from the KNOWN poses) exceeds this many px (default: 3.0)')
+    parser.add_argument('--clahe', action='store_true', help='apply CLAHE contrast enhancement before SIFT detection -- try this if the per-stage funnel below shows very few SIFT keypoints (e.g. <20/image), which is common on smooth, low-local-contrast content like mucosa')
+    parser.add_argument('--clahe-clip-limit', type=float, default=4.0, help='CLAHE clip limit (default: 4.0, only used with --clahe)')
+    parser.add_argument('--clahe-tile-size', type=int, default=8, help='CLAHE tile grid size, NxN (default: 8, only used with --clahe)')
     parser.add_argument('--expected-diameter-mm', type=float, required=True, help='expected scene scale (e.g. lumen diameter) in mm, used only as a coarse order-of-magnitude plausibility bound')
     parser.add_argument('--tolerance-factor', type=float, default=5.0, help='triangulated scale is flagged implausible outside [expected/factor, expected*factor] (default: 5.0)')
+    parser.add_argument('--min-points-for-plausibility', type=int, default=20, help="don't trust the scale-plausibility check below this many triangulated points -- a handful of points can't give a meaningful extent estimate even if individually well-conditioned (default: 20)")
     args = parser.parse_args()
 
     K, D, img_w, img_h = load_camera_intrinsics(args.camera_info)
@@ -78,11 +82,14 @@ def main():
         pair_stride=args.pair_stride,
         ratio=args.ratio,
         max_epipolar_error_px=args.max_epipolar_error_px,
+        use_clahe=args.clahe,
+        clahe_clip_limit=args.clahe_clip_limit,
+        clahe_tile_size=args.clahe_tile_size,
     )
 
     diags = result['pair_diagnostics']
     print(f"Stage 3: attempted {result['pair_count']} pairs, {result['successful_pair_count']} "
-          f"produced at least one triangulated point")
+          f"produced at least one triangulated point" + (' (CLAHE enabled)' if args.clahe else ''))
     print('  per-stage funnel, summed across all attempted pairs:')
     print(f"    SIFT keypoints found (avg per image): "
           f"{sum(d['kp_a'] + d['kp_b'] for d in diags) / max(1, 2 * len(diags)):.0f}")
@@ -90,17 +97,31 @@ def main():
     print(f"    matches surviving epipolar check:    {sum(d['epipolar_matches'] for d in diags)}")
     print(f"    points surviving cheirality:         {sum(d['triangulated_points'] for d in diags)}")
 
-    if result['point_count'] == 0:
+    if result['point_count'] < args.min_points_for_plausibility:
+        if result['point_count'] > 0:
+            print(f"  {result['point_count']} point(s) triangulated -- too few to form a meaningful "
+                  f"scale estimate (need >= --min-points-for-plausibility={args.min_points_for_plausibility}), "
+                  f"even if individually well-conditioned. Treating this the same as zero for diagnosis "
+                  f"purposes.", file=sys.stderr)
         avg_kp = sum(d['kp_a'] + d['kp_b'] for d in diags) / max(1, 2 * len(diags))
         avg_ratio = sum(d['ratio_matches'] for d in diags) / max(1, len(diags))
         avg_epi = sum(d['epipolar_matches'] for d in diags) / max(1, len(diags))
         if avg_kp < 20:
-            print('  DIAGNOSIS: SIFT is barely finding any keypoints at all -- this content has too '
-                  'little texture/contrast for SIFT specifically, independent of matching or pose '
-                  'correctness. Consider a contrast-enhancement pass (e.g. CLAHE) before detection, '
-                  'a detector better suited to low-texture surfaces, or accept that sparse feature '
-                  'matching is not viable on this footage and rely on Stage 4-5\'s dense stereo '
-                  'instead (which does not depend on distinctive sparse keypoints the same way).', file=sys.stderr)
+            if args.clahe:
+                print('  DIAGNOSIS: SIFT is barely finding any keypoints even WITH --clahe enabled -- '
+                      'this content may genuinely be too flat/low-texture for SIFT specifically '
+                      '(contrast enhancement can only reveal real structure that\'s faintly present, '
+                      'not invent structure from noise). Consider a detector better suited to low-'
+                      'texture surfaces, or accept that sparse feature matching is not viable on this '
+                      'footage and rely on Stage 4-5\'s dense stereo instead, which works on local '
+                      'patch photo-consistency rather than needing distinctive sparse keypoints.', file=sys.stderr)
+            else:
+                print('  DIAGNOSIS: SIFT is barely finding any keypoints at all -- this content has too '
+                      'little local contrast for SIFT specifically, independent of matching or pose '
+                      'correctness (consistent with smooth, evenly-lit mucosa). Try --clahe (contrast-'
+                      'limited adaptive histogram equalization) before drawing further conclusions -- '
+                      'it can recover keypoints from real structure that\'s just poorly quantized, '
+                      'though it cannot invent structure from truly flat/noise-floor content.', file=sys.stderr)
         elif avg_ratio < 8:
             print("  DIAGNOSIS: SIFT finds keypoints but the ratio test rejects nearly all matches -- "
                   "consistent with repetitive/self-similar texture (common on smooth mucosa) making "

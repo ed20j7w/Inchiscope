@@ -122,8 +122,10 @@ Reports a **per-stage funnel** summed across all attempted pairs -- SIFT
 keypoints found, matches surviving the ratio test, matches surviving the
 epipolar check, points surviving cheirality -- specifically so a failure
 can be pinned to a stage instead of just "nothing survived". If
-`point_count` ends up zero, it prints a specific diagnosis based on where
-the funnel actually died: keypoints too sparse (SIFT finding almost
+`point_count` ends up below `--min-points-for-plausibility` (default 20 --
+a handful of points can't give a meaningful scale estimate even if
+individually well-conditioned), it prints a specific diagnosis based on
+where the funnel actually died: keypoints too sparse (SIFT finding almost
 nothing -- a texture problem, independent of poses), matches too sparse
 after the ratio test (repetitive texture or `--pair-stride` too wide),
 matches dying at the epipolar check (the signature of a bad hand-eye
@@ -131,7 +133,24 @@ transform or corrupted pose stream -- the *known* geometry they're
 checked against is wrong), or dying at cheirality (a sign/direction bug
 in the pose/projection convention, not a data problem). Otherwise reports
 reprojection error (should be a few px at most against known poses -- a
-warning fires above 5px median) and the scale plausibility verdict. A
+warning fires above 5px median) and the scale plausibility verdict.
+
+**On a real bag, SIFT found only ~13 keypoints/image** (vs. ~6000 on a
+synthetic textured-test image) -- confirmed as a real local-contrast
+problem, not a bug: `--clahe` applies contrast-limited adaptive histogram
+equalization before SIFT detection, which recovers keypoints from real
+edge structure that's genuinely present but compressed into a narrow
+intensity band (validated on synthetic low-contrast-but-real-structure
+content in `test/test_sanity_check.py`) -- it cannot invent structure
+from truly flat/noise-floor content, so it's a real fix for faint-but-real
+detail, not a workaround for footage with nothing in it. Try
+`--clahe` first if the funnel shows few keypoints; `--clahe-clip-limit`
+(default 4.0) and `--clahe-tile-size` (default 8) are tunable if the
+defaults don't help on your footage. If keypoints stay sparse even with
+`--clahe`, sparse feature matching may simply not be viable on this
+tissue -- Stage 4-5's dense stereo doesn't have the same dependency on
+distinctive sparse keypoints, so that isn't necessarily a blocker for the
+overall pipeline, just for this particular cheap sanity check. A
 FAIL here means don't proceed to the expensive COLMAP/Open3D stages yet --
 suspect the hand-eye transform, a
 corrupted pose stream, or (per project discussion) camera/Aurora

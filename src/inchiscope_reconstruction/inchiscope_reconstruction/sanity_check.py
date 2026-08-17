@@ -16,11 +16,28 @@ import cv2
 import numpy as np
 
 
-def detect_sift(img):
+def enhance_contrast(gray_image, clip_limit=4.0, tile_grid_size=8):
+    """CLAHE (contrast-limited adaptive histogram equalization) --
+    standard fix for exactly the case this stage hit on real footage:
+    smooth, evenly-lit, low local-contrast content (e.g. mucosa) starves
+    SIFT of usable keypoints even where real edge structure exists,
+    because it's compressed into a narrow intensity band. CLAHE stretches
+    local contrast per-tile rather than globally, so it can reveal real
+    structure that's genuinely present but poorly quantized -- it cannot
+    invent structure out of pure sensor noise/flat content, so this isn't
+    a fix for truly featureless input, only for real-but-faint structure
+    (validated against both cases with synthetic data before adding this)."""
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_grid_size, tile_grid_size))
+    return clahe.apply(gray_image)
+
+
+def detect_sift(img, use_clahe=False, clahe_clip_limit=4.0, clahe_tile_size=8):
     """Returns (keypoints, descriptors) -- split out from match_pair so
     keypoint COUNTS (is SIFT finding anything at all in this content?) can
     be inspected independently of whether any of them go on to match."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    if use_clahe:
+        gray = enhance_contrast(gray, clahe_clip_limit, clahe_tile_size)
     sift = cv2.SIFT_create()
     return sift.detectAndCompute(gray, None)
 
@@ -39,11 +56,11 @@ def match_descriptors(kp_a, desc_a, kp_b, desc_b, ratio=0.75):
     return pts_a, pts_b
 
 
-def match_pair(img_a, img_b, ratio=0.75):
+def match_pair(img_a, img_b, ratio=0.75, use_clahe=False, clahe_clip_limit=4.0, clahe_tile_size=8):
     """SIFT detect + match in one call -- convenience wrapper combining
     detect_sift() + match_descriptors()."""
-    kp_a, desc_a = detect_sift(img_a)
-    kp_b, desc_b = detect_sift(img_b)
+    kp_a, desc_a = detect_sift(img_a, use_clahe, clahe_clip_limit, clahe_tile_size)
+    kp_b, desc_b = detect_sift(img_b, use_clahe, clahe_clip_limit, clahe_tile_size)
     return match_descriptors(kp_a, desc_a, kp_b, desc_b, ratio)
 
 
@@ -126,7 +143,8 @@ def reprojection_error(pts3d, pts2d, K, T):
     return np.linalg.norm(proj_px - pts2d, axis=1)
 
 
-def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3.0):
+def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3.0,
+                   use_clahe=False, clahe_clip_limit=4.0, clahe_tile_size=8):
     """Runs one frame pair through every stage (SIFT detect -> ratio-test
     match -> epipolar-consistency filter -> triangulate -> cheirality),
     recording the surviving count at each step regardless of where (or
@@ -134,8 +152,8 @@ def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3
     pinned to a specific stage (no keypoints at all? matches found but
     failing the known-pose epipolar check? cheirality?) instead of just
     reporting "nothing survived"."""
-    kp_a, desc_a = detect_sift(img_a)
-    kp_b, desc_b = detect_sift(img_b)
+    kp_a, desc_a = detect_sift(img_a, use_clahe, clahe_clip_limit, clahe_tile_size)
+    kp_b, desc_b = detect_sift(img_b, use_clahe, clahe_clip_limit, clahe_tile_size)
     diag = {
         'kp_a': len(kp_a) if kp_a is not None else 0,
         'kp_b': len(kp_b) if kp_b is not None else 0,
@@ -169,12 +187,17 @@ def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3
     return diag
 
 
-def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_error_px=3.0):
+def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_error_px=3.0,
+                         use_clahe=False, clahe_clip_limit=4.0, clahe_tile_size=8):
     """kept_frames: [(t_sec, image, T_ref2cam, pose_age_sec), ...] from
     Stage 2 (frame_selection.select_frames). Matches + triangulates over
     pairs pair_stride apart (wider baseline than adjacent frames, which
     Stage 2's redundancy filter already keeps close to the minimum useful
     separation), pools all triangulated points across pairs.
+
+    use_clahe applies contrast-limited adaptive histogram equalization
+    before SIFT detection -- see enhance_contrast()'s docstring for why
+    this matters for low-local-contrast content like mucosa.
 
     Always returns a dict (never None, even if nothing triangulated) with
     pair_diagnostics -- one diagnose_pair() result per attempted pair, so
@@ -186,7 +209,10 @@ def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_
     for i in range(0, len(kept_frames) - pair_stride, pair_stride):
         _, img_a, T_a, _ = kept_frames[i]
         _, img_b, T_b, _ = kept_frames[i + pair_stride]
-        pair_diagnostics.append(diagnose_pair(img_a, img_b, K, T_a, T_b, ratio, max_epipolar_error_px))
+        pair_diagnostics.append(diagnose_pair(
+            img_a, img_b, K, T_a, T_b, ratio, max_epipolar_error_px,
+            use_clahe, clahe_clip_limit, clahe_tile_size,
+        ))
 
     all_points = [d['points'] for d in pair_diagnostics if len(d['points']) > 0]
     all_reproj_errors = [d['reproj_errors'] for d in pair_diagnostics if len(d['reproj_errors']) > 0]

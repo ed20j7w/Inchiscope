@@ -16,7 +16,7 @@ import pytest
 from inchiscope_reconstruction.calibration import to_T
 from inchiscope_reconstruction.sanity_check import (
     filter_by_epipolar_consistency, triangulate, reprojection_error, scale_plausibility,
-    sparse_sanity_check,
+    sparse_sanity_check, detect_sift,
 )
 
 K = np.array([[400., 0, 240], [0, 400., 240], [0, 0, 1]])
@@ -132,6 +132,33 @@ def test_sparse_sanity_check_end_to_end_with_real_sift_on_textured_plane():
     assert result['successful_pair_count'] == 1
     assert result['point_count'] > 100
     assert result['reproj_error_median_px'] < 1.0
+
+
+def test_clahe_recovers_keypoints_from_low_contrast_real_structure():
+    """A real bag run found only ~13 SIFT keypoints/image on real footage
+    (vs. ~6000 on the synthetic textured-plane test) -- consistent with
+    real edge structure (visible fold boundaries) compressed into low
+    local contrast starving SIFT of usable keypoints. CLAHE should
+    recover keypoints from genuinely-present-but-faint structure; it
+    should NOT invent keypoints from pure noise with no real structure."""
+    rng = np.random.default_rng(8)
+    size = (300, 300)
+    yy, xx = np.mgrid[0:300, 0:300].astype(np.float64)
+    curve = 150 + 60 * np.sin(yy / 60.0)
+    structure = np.exp(-((xx - curve) ** 2) / (2 * 12 ** 2))
+    structure /= structure.max()
+    noise = rng.normal(0, 0.02, size)
+
+    low_contrast_img = (110 + (structure + noise) * 15).clip(0, 255).astype(np.uint8)
+    low_contrast_bgr = np.stack([low_contrast_img] * 3, axis=-1)
+    kp_plain, _ = detect_sift(low_contrast_bgr, use_clahe=False)
+    kp_clahe, _ = detect_sift(low_contrast_bgr, use_clahe=True, clahe_clip_limit=4.0, clahe_tile_size=16)
+    assert len(kp_clahe) > len(kp_plain)
+
+    flat_noise = (128 + rng.normal(0, 1.0, size)).clip(0, 255).astype(np.uint8)
+    flat_noise_bgr = np.stack([flat_noise] * 3, axis=-1)
+    kp_flat_clahe, _ = detect_sift(flat_noise_bgr, use_clahe=True, clahe_clip_limit=4.0, clahe_tile_size=16)
+    assert len(kp_flat_clahe) == 0
 
 
 def test_scale_plausibility_flags_order_of_magnitude_errors():
