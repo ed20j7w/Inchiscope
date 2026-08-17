@@ -19,8 +19,12 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# rosbag2 output
+# rosbag2 output -- record.launch.py's default bag_name is
+# "inchiscope_bag_<timestamp>" (doesn't match *_bag/, which only matches
+# names *ending* in "_bag" -- this bit the workspace once already when
+# `git add` picked up two real recordings)
 *_bag/
+*_bag_*/
 rosbag2_*/
 
 # calibrate_camera.py scratch output -- the canonical, committed calibration
