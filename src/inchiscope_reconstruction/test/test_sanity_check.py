@@ -17,7 +17,7 @@ from inchiscope_reconstruction.calibration import to_T
 from inchiscope_reconstruction.frame_selection import pose_delta
 from inchiscope_reconstruction.sanity_check import (
     filter_by_epipolar_consistency, triangulate, reprojection_error, scale_plausibility,
-    sparse_sanity_check, detect_sift, diagnose_pair,
+    sparse_sanity_check, detect_sift, diagnose_pair, filter_outlier_points,
 )
 
 K = np.array([[400., 0, 240], [0, 400., 240], [0, 0, 1]])
@@ -176,6 +176,36 @@ def test_clahe_recovers_keypoints_from_low_contrast_real_structure():
     flat_noise_bgr = np.stack([flat_noise] * 3, axis=-1)
     kp_flat_clahe, _ = detect_sift(flat_noise_bgr, use_clahe=True, clahe_clip_limit=4.0, clahe_tile_size=16)
     assert len(kp_flat_clahe) == 0
+
+
+def test_filter_outlier_points_fixes_a_skewed_plausibility_estimate():
+    """A handful of high-reprojection-error points (e.g. from a mismatch
+    that coincidentally satisfied the epipolar line, or a near-degenerate
+    local triangulation) can pull even a percentile-based extent estimate
+    far from the truth -- filtering by reprojection error first should
+    recover a plausible estimate that filtering by percentile alone
+    doesn't fully fix."""
+    rng = np.random.default_rng(10)
+    good_points = rng.uniform(-0.0125, 0.0125, (100, 3))  # ~25mm characteristic scale
+    good_errors = rng.uniform(0.1, 1.0, 100)  # sub-pixel-to-1px, all trustworthy
+
+    # A small number of wild outliers with large reprojection error, at a
+    # scale an order of magnitude off -- enough to still shift even the
+    # 5th-95th percentile extent noticeably with only 100 good points.
+    bad_points = rng.uniform(-0.5, 0.5, (15, 3))
+    bad_errors = rng.uniform(5.0, 50.0, 15)
+
+    points = np.concatenate([good_points, bad_points])
+    errors = np.concatenate([good_errors, bad_errors])
+
+    unfiltered = scale_plausibility(points, expected_diameter_mm=25.0, tolerance_factor=5.0)
+    assert not unfiltered['plausible'], 'expected the outliers to already skew the unfiltered estimate for this test to be meaningful'
+
+    filtered_points, kept, dropped = filter_outlier_points(points, errors, max_reproj_error_px=2.0)
+    assert kept == 100
+    assert dropped == 15
+    filtered = scale_plausibility(filtered_points, expected_diameter_mm=25.0, tolerance_factor=5.0)
+    assert filtered['plausible']
 
 
 def test_scale_plausibility_flags_order_of_magnitude_errors():

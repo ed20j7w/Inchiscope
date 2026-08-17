@@ -140,8 +140,18 @@ pose stream -- the *known* geometry the matches are checked against is
 wrong), or dying at cheirality alone with good epipolar survival (a sign/
 direction bug in the pose/projection convention, not a data problem).
 Otherwise reports reprojection error (should be a few px at most against
-known poses -- a warning fires above 5px median) and the scale
-plausibility verdict.
+known poses -- a warning fires above 5px median), then **drops points
+whose reprojection error into either view exceeds `--max-point-reproj-
+error-px`** (default 2.0) before computing scale plausibility. A point
+that reprojects badly is either a mismatch that satisfied the epipolar
+check by coincidence (that check only constrains a point to lie near a
+*line*, which repetitive texture can satisfy without being the correct
+correspondence) or a numerically unstable near-degenerate local
+triangulation (a specific pair can have a small effective baseline even
+when the overall pair-baseline distribution looks healthy) -- either way,
+a handful of these can skew even a percentile-based extent estimate.
+Reports how many points were kept/dropped, then the scale plausibility
+verdict computed from the filtered set.
 
 **On a real bag, SIFT found only ~13 keypoints/image** (vs. ~6000 on a
 synthetic textured-test image) -- confirmed as a real local-contrast

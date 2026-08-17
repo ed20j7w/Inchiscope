@@ -184,11 +184,13 @@ def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3
     if len(pts3d) == 0:
         return diag
 
+    err_a = reprojection_error(pts3d, pts_a, K, T_a)
+    err_b = reprojection_error(pts3d, pts_b, K, T_b)
     diag['points'] = pts3d
-    diag['reproj_errors'] = np.concatenate([
-        reprojection_error(pts3d, pts_a, K, T_a),
-        reprojection_error(pts3d, pts_b, K, T_b),
-    ])
+    # per-point, aligned 1:1 with 'points' -- worst of the two views, since
+    # a point should reproject well into BOTH to be trustworthy
+    diag['point_reproj_errors'] = np.maximum(err_a, err_b)
+    diag['reproj_errors'] = np.concatenate([err_a, err_b])  # pooled, for aggregate mean/median/p90 only
     return diag
 
 
@@ -220,9 +222,11 @@ def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_
         ))
 
     all_points = [d['points'] for d in pair_diagnostics if len(d['points']) > 0]
+    all_point_reproj_errors = [d['point_reproj_errors'] for d in pair_diagnostics if len(d['points']) > 0]
     all_reproj_errors = [d['reproj_errors'] for d in pair_diagnostics if len(d['reproj_errors']) > 0]
 
     points = np.concatenate(all_points, axis=0) if all_points else np.empty((0, 3))
+    point_reproj_errors = np.concatenate(all_point_reproj_errors, axis=0) if all_point_reproj_errors else np.empty((0,))
     reproj_errors = np.concatenate(all_reproj_errors, axis=0) if all_reproj_errors else np.empty((0,))
     return {
         'pair_count': len(pair_diagnostics),
@@ -230,10 +234,31 @@ def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_
         'point_count': len(points),
         'pair_diagnostics': pair_diagnostics,
         'points': points,
+        'point_reproj_errors': point_reproj_errors,  # aligned 1:1 with 'points'
         'reproj_error_mean_px': float(reproj_errors.mean()) if len(reproj_errors) else None,
         'reproj_error_median_px': float(np.median(reproj_errors)) if len(reproj_errors) else None,
         'reproj_error_p90_px': float(np.percentile(reproj_errors, 90)) if len(reproj_errors) else None,
     }
+
+
+def filter_outlier_points(points, point_reproj_errors, max_reproj_error_px=2.0):
+    """Drops points whose reprojection error into either view exceeds
+    max_reproj_error_px. A point that doesn't reproject well is either a
+    mismatch that survived the epipolar filter by coincidence (the
+    epipolar check only constrains a point to lie near a LINE, which
+    repetitive/self-similar texture can satisfy by chance -- full
+    triangulation + reprojection is a much stricter, full check), or
+    numerically unstable from a near-degenerate *local* triangulation
+    (a specific pair can have a small effective baseline even if the
+    overall pair-baseline distribution looks healthy). Either way, a
+    handful of these can skew even a percentile-based extent estimate.
+
+    Returns (filtered_points, kept_count, dropped_count).
+    """
+    if len(points) == 0:
+        return points, 0, 0
+    keep = point_reproj_errors <= max_reproj_error_px
+    return points[keep], int(keep.sum()), int((~keep).sum())
 
 
 def scale_plausibility(points, expected_diameter_mm, tolerance_factor=5.0):
