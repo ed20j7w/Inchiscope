@@ -1,4 +1,9 @@
-arent_frame: aurora_sensor_0
+parent_frame: aurora_sensor_0
 child_frame: naneye_camera
-translation: {x: 0.0, y: 0.0, z: 0.0}
-rotation_xyzw: {x: 0.0107, y: -0.0991, z: 0.9861, w: 0.1328}
+translation: {x: 0.0008252907252440817, y: -0.00012738192325785995, z: -0.0017209393499762514}
+rotation_xyzw: {x: 0.016154189212128627, y: -0.03845795762038132, z: 0.9949673288398387,
+  w: 0.09110456743700582}
+method: TSAI
+captures_used: 27
+validation_std_mm: [2.6051226018481515, 2.4991537099892676, 2.090512963849602]
+validation_max_spread_mm: [9.056160916334946, 8.598656698458559, 8.296878435379803]
