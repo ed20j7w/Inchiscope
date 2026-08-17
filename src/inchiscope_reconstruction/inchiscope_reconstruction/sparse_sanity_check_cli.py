@@ -29,7 +29,7 @@ from inchiscope_reconstruction.bag_extraction import (
     IMAGE_TOPIC, POSE_TOPIC, read_bag, associate, apply_hand_eye,
 )
 from inchiscope_reconstruction.frame_selection import select_frames
-from inchiscope_reconstruction.sanity_check import sparse_sanity_check, scale_plausibility
+from inchiscope_reconstruction.sanity_check import sparse_sanity_check, scale_plausibility, filter_outlier_points
 
 
 def main():
@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--expected-diameter-mm', type=float, required=True, help='expected scene scale (e.g. lumen diameter) in mm, used only as a coarse order-of-magnitude plausibility bound')
     parser.add_argument('--tolerance-factor', type=float, default=5.0, help='triangulated scale is flagged implausible outside [expected/factor, expected*factor] (default: 5.0)')
     parser.add_argument('--min-points-for-plausibility', type=int, default=20, help="don't trust the scale-plausibility check below this many triangulated points -- a handful of points can't give a meaningful extent estimate even if individually well-conditioned (default: 20)")
+    parser.add_argument('--max-point-reproj-error-px', type=float, default=2.0, help='drop points whose reprojection error into either view exceeds this many px before computing scale plausibility -- these are either mismatches that coincidentally satisfied the epipolar line, or numerically unstable near-degenerate local triangulations, and can skew even a percentile-based extent estimate (default: 2.0)')
     args = parser.parse_args()
 
     K, D, img_w, img_h = load_camera_intrinsics(args.camera_info)
@@ -174,9 +175,20 @@ def main():
               'poses (should generally be a few px at most) -- suggests the pose stream/hand-eye '
               'transform may be off even where matches survived the epipolar filter.', file=sys.stderr)
 
-    plausibility = scale_plausibility(result['points'], args.expected_diameter_mm, args.tolerance_factor)
+    filtered_points, kept, dropped = filter_outlier_points(
+        result['points'], result['point_reproj_errors'], args.max_point_reproj_error_px,
+    )
+    print(f"  outlier filtering (reprojection error > {args.max_point_reproj_error_px}px): "
+          f"kept {kept}, dropped {dropped}")
+    if kept < args.min_points_for_plausibility:
+        print(f'  Fewer than --min-points-for-plausibility={args.min_points_for_plausibility} points '
+              f'survived outlier filtering -- not enough left to trust a scale estimate. Loosen '
+              f'--max-point-reproj-error-px or gather more data before trusting this result.', file=sys.stderr)
+        sys.exit(1)
+
+    plausibility = scale_plausibility(filtered_points, args.expected_diameter_mm, args.tolerance_factor)
     lo, hi = plausibility['bounds_mm']
-    print(f"  triangulated scene extent (mm, 5th-95th percentile per axis): "
+    print(f"  triangulated scene extent (mm, 5th-95th percentile per axis, outliers filtered): "
           f"{[round(v, 1) for v in plausibility['extent_mm']]}")
     print(f"  characteristic size: {plausibility['characteristic_size_mm']:.1f}mm "
           f"(plausible range given expected {args.expected_diameter_mm}mm +/- {args.tolerance_factor}x: "
