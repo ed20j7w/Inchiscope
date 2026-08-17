@@ -1,4 +1,4 @@
-parent_frame: aurora_sensor_0
+arent_frame: aurora_sensor_0
 child_frame: naneye_camera
 translation: {x: 0.0, y: 0.0, z: 0.0}
-rotation_xyzw: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}
+rotation_xyzw: {x: 0.0107, y: -0.0991, z: 0.9861, w: 0.1328}
