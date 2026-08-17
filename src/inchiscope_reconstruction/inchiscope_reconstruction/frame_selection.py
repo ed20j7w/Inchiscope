@@ -16,6 +16,21 @@ def blur_score(gray_image):
     return cv2.Laplacian(gray_image, cv2.CV_64F).var()
 
 
+def blur_scores(frames):
+    """blur_score() for every frame in a Stage 1 output list, with no
+    threshold applied -- lets you inspect the real distribution before
+    choosing --blur-threshold. A sensible cutoff depends heavily on scene
+    content: low-texture, smooth, evenly-lit surfaces (e.g. mucosa) read
+    as much "blurrier" by this metric than a textured scene even in
+    perfect focus, so there's no universal good default -- judge relative
+    to your own footage's distribution, not an absolute number."""
+    scores = np.empty(len(frames))
+    for i, (_, img, _, _) in enumerate(frames):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+        scores[i] = blur_score(gray)
+    return scores
+
+
 def pose_delta(T_a, T_b):
     """Returns (translation_delta_m, rotation_delta_deg) between two
     camera poses in the same frame -- used to decide whether a new

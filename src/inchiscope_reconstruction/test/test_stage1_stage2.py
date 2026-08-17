@@ -17,7 +17,7 @@ import pytest
 
 from inchiscope_reconstruction.calibration import to_T
 from inchiscope_reconstruction.bag_extraction import associate, apply_hand_eye
-from inchiscope_reconstruction.frame_selection import blur_score, pose_delta, select_frames
+from inchiscope_reconstruction.frame_selection import blur_score, blur_scores, pose_delta, select_frames
 
 
 def _random_rigid(rng):
@@ -97,6 +97,17 @@ def _make_frame(t, tx, blurry=False):
     T = np.eye(4)
     T[0, 3] = tx
     return (t, img, T, 0.01)
+
+
+def test_blur_scores_matches_blur_score_per_frame():
+    sharp = np.zeros((100, 100, 3), dtype=np.uint8)
+    sharp[::4, :, :] = 255
+    blurred = cv2.GaussianBlur(sharp, (15, 15), 5)
+    frames = [(0.0, sharp, np.eye(4), 0.0), (0.1, blurred, np.eye(4), 0.0)]
+    scores = blur_scores(frames)
+    assert scores[0] == pytest.approx(blur_score(cv2.cvtColor(sharp, cv2.COLOR_BGR2GRAY)))
+    assert scores[1] == pytest.approx(blur_score(cv2.cvtColor(blurred, cv2.COLOR_BGR2GRAY)))
+    assert scores[0] > scores[1]
 
 
 def test_select_frames_drops_blurry_and_redundant():

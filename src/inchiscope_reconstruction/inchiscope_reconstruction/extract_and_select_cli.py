@@ -19,12 +19,13 @@ import os
 import sys
 
 import cv2
+import numpy as np
 
 from inchiscope_reconstruction.calibration import load_camera_intrinsics, load_hand_eye_transform
 from inchiscope_reconstruction.bag_extraction import (
     IMAGE_TOPIC, POSE_TOPIC, read_bag, associate, apply_hand_eye,
 )
-from inchiscope_reconstruction.frame_selection import select_frames
+from inchiscope_reconstruction.frame_selection import blur_scores, select_frames
 
 
 def main():
@@ -64,6 +65,23 @@ def main():
               f'mean={sum(ages_ms) / len(ages_ms):.1f}ms')
 
     with_poses = apply_hand_eye(associated, R_ce, t_ce)
+
+    scores = blur_scores(with_poses)
+    pct = np.percentile(scores, [0, 10, 25, 50, 75, 90, 100])
+    print(f'Blur score distribution (variance of Laplacian, higher=sharper) over '
+          f'{len(scores)} frames:')
+    print(f'  min={pct[0]:.1f} p10={pct[1]:.1f} p25={pct[2]:.1f} median={pct[3]:.1f} '
+          f'p75={pct[4]:.1f} p90={pct[5]:.1f} max={pct[6]:.1f}  '
+          f'(current --blur-threshold={args.blur_threshold})')
+    if pct[6] < args.blur_threshold:
+        print(f'  NOTE: every frame scores below --blur-threshold, so Stage 2 will drop all of '
+              f'them regardless of --min-baseline-m/--min-rotation-deg. This metric reads '
+              f'low-texture, smooth, evenly-lit content (e.g. mucosa) as "blurry" even in '
+              f'perfect focus -- there is no universal good threshold, so pick one relative to '
+              f'*this* distribution (e.g. drop only the bottom 10-25% via p10/p25 above) rather '
+              f'than an absolute number, then look at a few --out-dir frames near that cutoff to '
+              f'confirm they actually look unusably blurry before trusting it.', file=sys.stderr)
+
     kept, dropped_blur, dropped_redundant = select_frames(
         with_poses, K, D,
         blur_threshold=args.blur_threshold,

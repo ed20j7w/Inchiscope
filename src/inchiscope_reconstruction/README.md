@@ -64,18 +64,28 @@ ros2 run inchiscope_reconstruction extract_and_select \
 ```
 
 Reports, at each stage: how many images/poses were read, how many images
-got associated to a fresh-enough pose (and the pose-age distribution),
-and how many survived frame selection (with counts for why the rest were
-dropped -- blurry vs. redundant). `--out-dir` writes the kept, undistorted
-frames as PNGs so you can eyeball them.
+got associated to a fresh-enough pose (and the pose-age distribution), the
+**blur score distribution** across all extracted frames, and how many
+survived frame selection (with counts for why the rest were dropped --
+blurry vs. redundant). `--out-dir` writes the kept, undistorted frames as
+PNGs so you can eyeball them.
 
-Tunables if the defaults don't fit the real footage:
-`--max-pose-age-sec` (default 0.1s), `--blur-threshold` (default 100.0,
-variance-of-Laplacian -- picked without real footage to tune against, so
-treat it as a starting point), `--min-baseline-m` (default 1mm),
-`--min-rotation-deg` (default 2.0). If fewer than 10 frames survive, the
-CLI warns -- check whether the thresholds are too aggressive before
-trusting downstream stages with that few views.
+**Tuning `--blur-threshold`**: variance-of-Laplacian (the metric used)
+reads low-texture, smooth, evenly-lit content -- e.g. mucosa -- as
+"blurry" even in perfect focus, so there's no universal good default
+(100.0 was only ever a placeholder, not tuned against real footage). The
+CLI always prints the real min/p10/p25/median/p75/p90/max distribution
+for your actual frames before applying the cutoff -- if every frame
+scores below the current threshold, it says so explicitly rather than
+letting Stage 2 silently drop everything. Pick a threshold relative to
+*that* distribution (e.g. drop only the bottom 10-25% via the p10/p25
+values) rather than an absolute number, then check a few `--out-dir`
+frames near the cutoff actually look unusably blurry before trusting it.
+
+Other tunables: `--max-pose-age-sec` (default 0.1s), `--min-baseline-m`
+(default 1mm), `--min-rotation-deg` (default 2.0). If fewer than 10
+frames survive, the CLI warns -- check whether the thresholds are too
+aggressive before trusting downstream stages with that few views.
 
 ## Running the tests
 
