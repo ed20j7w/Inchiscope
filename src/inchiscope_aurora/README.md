@@ -90,6 +90,28 @@ It retries the connect/load/init/enable/start-tracking sequence on a timer
 (`reconnect_period_sec`, default 5s) until it succeeds, so it's safe to
 launch before the Aurora unit is powered on.
 
+## Measuring the tracker's own noise floor
+
+`scripts/measure_aurora_noise.py` -- standalone, not a ROS node registered
+with the package -- holds the sensor still and reports how much
+`/aurora/sensor_0/pose_relative_to_reference` jitters on its own, in
+position (mm) and orientation (degrees). Run it with `aurora_tracker_node`
+already up and the sensor resting on something solid (not free-handed --
+that adds tremor that isn't the tracker's own noise):
+
+```bash
+python3 scripts/measure_aurora_noise.py --duration-sec 15
+```
+
+This isolates the tracker/environment's own accuracy from everything else
+in the pipeline (capture timing, hand-eye calibration, camera intrinsics).
+Compare its numbers directly against the checkerboard-in-reference spread
+`inchiscope_camera/scripts/calibrate_hand_eye.py solve` reports -- if
+they're already close, no amount of better capture technique or
+recalibration elsewhere will close the remaining gap; the tracker itself
+(or nearby metal, or distance from the field generator at that bench
+location) is the limiting factor.
+
 ## Known simplifications
 
 - Uses the classic binary `BX` command, not `BX2` -- Aurora doesn't support
