@@ -261,6 +261,42 @@ def filter_outlier_points(points, point_reproj_errors, max_reproj_error_px=2.0):
     return points[keep], int(keep.sum()), int((~keep).sum())
 
 
+def build_visualization_export(result, kept_frames, expected_diameter_mm, max_point_reproj_error_px=2.0):
+    """Builds a JSON-serializable dict for visual inspection: triangulated
+    points grouped and labelled by which pair produced them (after the
+    same reprojection-error outlier filtering used for the plausibility
+    check), plus the full camera trajectory for context.
+
+    Colouring points by pair_index when visualizing is the point: it
+    directly distinguishes two failure modes that look identical in the
+    pooled scale-plausibility number alone -- separate, offset clusters
+    per pair (pair-to-pair placement inconsistency, e.g. from a residual
+    hand-eye rotation error) vs. one uniformly-too-large cloud (a real
+    scale problem).
+    """
+    pairs_export = []
+    for idx, diag in enumerate(result['pair_diagnostics']):
+        pts = diag['points']
+        if len(pts) == 0:
+            continue
+        keep_mask = diag['point_reproj_errors'] <= max_point_reproj_error_px
+        pts_kept = pts[keep_mask]
+        if len(pts_kept) == 0:
+            continue
+        pairs_export.append({
+            'pair_index': idx,
+            'baseline_mm': diag['baseline_m'] * 1000.0,
+            'rotation_deg': diag['rotation_deg'],
+            'points_mm': (pts_kept * 1000.0).tolist(),
+        })
+    camera_trajectory_mm = [(T_ref2cam[:3, 3] * 1000.0).tolist() for (_, _, T_ref2cam, _) in kept_frames]
+    return {
+        'expected_diameter_mm': expected_diameter_mm,
+        'camera_trajectory_mm': camera_trajectory_mm,
+        'pairs': pairs_export,
+    }
+
+
 def scale_plausibility(points, expected_diameter_mm, tolerance_factor=5.0):
     """Coarse plausibility bound, NOT a precision measurement: uses the
     5th-95th percentile extent along each axis (robust to a handful of

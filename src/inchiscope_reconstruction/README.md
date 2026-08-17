@@ -153,6 +153,24 @@ a handful of these can skew even a percentile-based extent estimate.
 Reports how many points were kept/dropped, then the scale plausibility
 verdict computed from the filtered set.
 
+**`characteristic_size_mm` is deliberately crude** -- it's the median of
+the 5th-95th percentile spread along each of the reference frame's own
+X/Y/Z axes (not a true geometric diameter, not aligned to the scene's
+actual shape), computed over ALL points pooled across every pair. Pooling
+means it can't distinguish "each pair's own local reconstruction is
+correctly scaled, but different pairs don't agree on where their patch
+sits in the shared reference frame" (pair-to-pair placement inconsistency,
+e.g. from a residual hand-eye rotation error) from "every pair is
+individually mis-scaled" -- both look identical in the pooled number.
+
+`--export-json PATH` writes the (outlier-filtered) triangulated points
+grouped and labelled by which pair produced them, plus the full camera
+trajectory, to a JSON file for visual inspection -- colouring points by
+`pair_index` when plotting directly answers which of the two cases above
+is happening: offset/separate clusters per pair points at placement
+inconsistency; one uniformly-too-large blob points at a real scale
+problem.
+
 **On a real bag, SIFT found only ~13 keypoints/image** (vs. ~6000 on a
 synthetic textured-test image) -- confirmed as a real local-contrast
 problem, not a bug: `--clahe` applies contrast-limited adaptive histogram

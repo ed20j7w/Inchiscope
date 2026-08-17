@@ -18,6 +18,7 @@ from inchiscope_reconstruction.frame_selection import pose_delta
 from inchiscope_reconstruction.sanity_check import (
     filter_by_epipolar_consistency, triangulate, reprojection_error, scale_plausibility,
     sparse_sanity_check, detect_sift, diagnose_pair, filter_outlier_points,
+    build_visualization_export,
 )
 
 K = np.array([[400., 0, 240], [0, 400., 240], [0, 0, 1]])
@@ -206,6 +207,40 @@ def test_filter_outlier_points_fixes_a_skewed_plausibility_estimate():
     assert dropped == 15
     filtered = scale_plausibility(filtered_points, expected_diameter_mm=25.0, tolerance_factor=5.0)
     assert filtered['plausible']
+
+
+def test_build_visualization_export_is_json_serializable_and_matches_result():
+    import json
+
+    rng = np.random.default_rng(11)
+    size = (480, 480)
+    noise = rng.integers(0, 256, size, dtype=np.uint8)
+    img_a_gray = cv2.GaussianBlur(noise, (3, 3), 0.8)
+    T_a = to_T(np.eye(3), np.zeros(3))
+    R_b, _ = cv2.Rodrigues(rng.uniform(-0.05, 0.05, 3))
+    T_b = to_T(R_b, np.array([0.003, 0.001, 0.0]))
+    Z0 = 0.02
+    T_rel = np.linalg.inv(T_b) @ T_a
+    H = K @ (T_rel[:3, :3] + np.outer(T_rel[:3, 3], [0, 0, 1.0]) / Z0) @ np.linalg.inv(K)
+    img_b_gray = cv2.warpPerspective(img_a_gray, H, size)
+    kept_frames = [
+        (0.0, cv2.cvtColor(img_a_gray, cv2.COLOR_GRAY2BGR), T_a, 0.01),
+        (0.1, cv2.cvtColor(img_b_gray, cv2.COLOR_GRAY2BGR), T_b, 0.01),
+    ]
+
+    result = sparse_sanity_check(kept_frames, K, pair_stride=1)
+    export = build_visualization_export(result, kept_frames, expected_diameter_mm=25.0, max_point_reproj_error_px=2.0)
+
+    json.dumps(export)  # must not raise
+    assert export['expected_diameter_mm'] == 25.0
+    assert len(export['camera_trajectory_mm']) == len(kept_frames)
+    assert export['camera_trajectory_mm'][0] == [0.0, 0.0, 0.0]
+    assert len(export['pairs']) == result['successful_pair_count']
+    total_exported = sum(len(p['points_mm']) for p in export['pairs'])
+    assert 0 < total_exported <= result['point_count']
+    for p in export['pairs']:
+        assert set(p.keys()) == {'pair_index', 'baseline_mm', 'rotation_deg', 'points_mm'}
+        assert all(len(pt) == 3 for pt in p['points_mm'])
 
 
 def test_scale_plausibility_flags_order_of_magnitude_errors():

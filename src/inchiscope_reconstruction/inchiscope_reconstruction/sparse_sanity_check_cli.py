@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import json
 import sys
 
 import numpy as np
@@ -29,7 +30,9 @@ from inchiscope_reconstruction.bag_extraction import (
     IMAGE_TOPIC, POSE_TOPIC, read_bag, associate, apply_hand_eye,
 )
 from inchiscope_reconstruction.frame_selection import select_frames
-from inchiscope_reconstruction.sanity_check import sparse_sanity_check, scale_plausibility, filter_outlier_points
+from inchiscope_reconstruction.sanity_check import (
+    sparse_sanity_check, scale_plausibility, filter_outlier_points, build_visualization_export,
+)
 
 
 def main():
@@ -53,6 +56,7 @@ def main():
     parser.add_argument('--tolerance-factor', type=float, default=5.0, help='triangulated scale is flagged implausible outside [expected/factor, expected*factor] (default: 5.0)')
     parser.add_argument('--min-points-for-plausibility', type=int, default=20, help="don't trust the scale-plausibility check below this many triangulated points -- a handful of points can't give a meaningful extent estimate even if individually well-conditioned (default: 20)")
     parser.add_argument('--max-point-reproj-error-px', type=float, default=2.0, help='drop points whose reprojection error into either view exceeds this many px before computing scale plausibility -- these are either mismatches that coincidentally satisfied the epipolar line, or numerically unstable near-degenerate local triangulations, and can skew even a percentile-based extent estimate (default: 2.0)')
+    parser.add_argument('--export-json', default=None, help='write triangulated points (grouped and labelled by which pair produced them, after the same outlier filtering as the report above) plus the full camera trajectory to this JSON file, for visual inspection -- colouring by pair reveals whether an inflated scale comes from pairs disagreeing with each other (pair-to-pair placement inconsistency) vs. one uniformly-too-large cloud (a real scale problem)')
     args = parser.parse_args()
 
     K, D, img_w, img_h = load_camera_intrinsics(args.camera_info)
@@ -175,12 +179,12 @@ def main():
               'poses (should generally be a few px at most) -- suggests the pose stream/hand-eye '
               'transform may be off even where matches survived the epipolar filter.', file=sys.stderr)
 
-    filtered_points, kept, dropped = filter_outlier_points(
+    filtered_points, kept_count, dropped_count = filter_outlier_points(
         result['points'], result['point_reproj_errors'], args.max_point_reproj_error_px,
     )
     print(f"  outlier filtering (reprojection error > {args.max_point_reproj_error_px}px): "
-          f"kept {kept}, dropped {dropped}")
-    if kept < args.min_points_for_plausibility:
+          f"kept {kept_count}, dropped {dropped_count}")
+    if kept_count < args.min_points_for_plausibility:
         print(f'  Fewer than --min-points-for-plausibility={args.min_points_for_plausibility} points '
               f'survived outlier filtering -- not enough left to trust a scale estimate. Loosen '
               f'--max-point-reproj-error-px or gather more data before trusting this result.', file=sys.stderr)
@@ -193,6 +197,18 @@ def main():
     print(f"  characteristic size: {plausibility['characteristic_size_mm']:.1f}mm "
           f"(plausible range given expected {args.expected_diameter_mm}mm +/- {args.tolerance_factor}x: "
           f"{lo:.1f}-{hi:.1f}mm)")
+
+    if args.export_json:
+        export_data = build_visualization_export(
+            result, kept, args.expected_diameter_mm, args.max_point_reproj_error_px,
+        )
+        with open(args.export_json, 'w') as f:
+            json.dump(export_data, f)
+        total_exported = sum(len(p['points_mm']) for p in export_data['pairs'])
+        print(f"  Exported {total_exported} points across {len(export_data['pairs'])} pairs, plus "
+              f"{len(export_data['camera_trajectory_mm'])} camera trajectory positions, "
+              f"to {args.export_json}")
+
     if plausibility['plausible']:
         print('  PASS: triangulated scale is plausible -- pose stream and hand-eye transform look '
               'directionally sane. This is a coarse bound, not proof of accuracy.')
