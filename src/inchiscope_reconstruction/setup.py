@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'extract_and_select = inchiscope_reconstruction.extract_and_select_cli:main',
+            'sparse_sanity_check = inchiscope_reconstruction.sparse_sanity_check_cli:main',
         ],
     },
 )
