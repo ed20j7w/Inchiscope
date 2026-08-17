@@ -14,24 +14,29 @@ control, or the rest of the control stack.
 
 ## Status
 
-**Implemented and unit-tested against synthetic data**: Stage 1 (extract
-& associate) and Stage 2 (frame selection).
+**Stage 1 (extract & associate) and Stage 2 (frame selection): implemented,
+unit-tested against synthetic data, and verified against real hardware
+data** (a real anchored-sweep bag, 1944 frames, 100% associated within
+100ms of a pose).
 
-**Not yet run against real hardware data** -- there's no ROS2 install in
-the environment these were developed in, so `bag_extraction.read_bag()`
-(the only ROS-dependent piece -- rosbag2_py + cv_bridge) couldn't be
-exercised directly. Everything else (`associate`, `apply_hand_eye` in
-`bag_extraction.py`; `blur_score`, `pose_delta`, `select_frames` in
-`frame_selection.py`) is pure Python/numpy/OpenCV and is covered by
-`test/test_stage1_stage2.py`, including a check that the hand-eye
-transform is composed the same way `calibrate_hand_eye.py` solves for it
-(the one place a subtle convention mismatch would silently corrupt every
-downstream stage without necessarily looking wrong at a glance).
+**Stage 3 (sparse sanity check): implemented, unit-tested against
+synthetic data.** Not yet run against real hardware data. The pure
+projection/triangulation/epipolar-consistency math (`sanity_check.py`) is
+covered by `test/test_sanity_check.py`, including a check that a
+deliberately wrong pose gets caught by the epipolar-consistency filter --
+this stage's actual job. SIFT matching itself can't be meaningfully
+synthetic-tested (that's inherently about real image content), so the
+first real-bag run is the real test of that part.
 
-**Not started**: Stage 3 (sparse sanity check), Stages 4-5 (COLMAP fixed-
-pose dense stereo -> Open3D TSDF fusion), Stages 6-7 (mesh cleanup, the
-`ReconstructFromBag` action interface). COLMAP and Open3D aren't installed
-yet either -- not needed until Stage 4.
+The ROS-dependent I/O (`bag_extraction.read_bag()`, needing rosbag2_py +
+cv_bridge) still can't be exercised in the environment these were
+developed in (no ROS2 install) -- everything else is pure Python/numpy/
+OpenCV and unit-tested here.
+
+**Not started**: Stages 4-5 (COLMAP fixed-pose dense stereo -> Open3D TSDF
+fusion), Stages 6-7 (mesh cleanup, the `ReconstructFromBag` action
+interface). COLMAP and Open3D aren't installed yet either -- not needed
+until Stage 4.
 
 ## Fixes from the original workplan draft
 
@@ -73,19 +78,53 @@ PNGs so you can eyeball them.
 **Tuning `--blur-threshold`**: variance-of-Laplacian (the metric used)
 reads low-texture, smooth, evenly-lit content -- e.g. mucosa -- as
 "blurry" even in perfect focus, so there's no universal good default
-(100.0 was only ever a placeholder, not tuned against real footage). The
-CLI always prints the real min/p10/p25/median/p75/p90/max distribution
-for your actual frames before applying the cutoff -- if every frame
-scores below the current threshold, it says so explicitly rather than
-letting Stage 2 silently drop everything. Pick a threshold relative to
-*that* distribution (e.g. drop only the bottom 10-25% via the p10/p25
-values) rather than an absolute number, then check a few `--out-dir`
-frames near the cutoff actually look unusably blurry before trusting it.
+(100.0 was only ever a placeholder, not tuned against real footage). **On
+a real capture this turned out to be a real effect, not a hypothetical
+one**: all 1944 frames of a real bag scored 7.2-10.2, a real image from
+that set visually showed clear, well-defined fold structure despite the
+low score, and `--blur-threshold 0` (i.e. disabled) was what actually
+worked -- the redundancy filter (`--min-baseline-m`/`--min-rotation-deg`,
+pose-driven rather than image-content-driven) did the real work of
+thinning 1944 frames down to a reasonable 189. Start with
+`--blur-threshold 0` and only re-enable it if you have reason to believe
+some frames really are unusably blurry (motion blur, defocus) -- check the
+printed distribution and a few `--out-dir` frames near a candidate cutoff
+before trusting it either way.
 
 Other tunables: `--max-pose-age-sec` (default 0.1s), `--min-baseline-m`
 (default 1mm), `--min-rotation-deg` (default 2.0). If fewer than 10
 frames survive, the CLI warns -- check whether the thresholds are too
 aggressive before trusting downstream stages with that few views.
+
+## Running Stage 3 (sparse sanity check) against a real bag
+
+```bash
+ros2 run inchiscope_reconstruction sparse_sanity_check \
+    --bag-path /path/to/your/bag \
+    --camera-info src/inchiscope_bringup/config/camera_info.yaml \
+    --hand-eye src/inchiscope_camera/scripts/hand_eye_transform.yaml \
+    --expected-diameter-mm 25.0
+```
+
+Re-runs Stage 1-2 internally (cheap, no need to persist their output),
+then: SIFT-matches frames `--pair-stride` apart (default 5 -- wider
+baseline than adjacent Stage-2-kept frames, which are already near the
+minimum useful separation), filters matches by whether they satisfy the
+epipolar geometry implied by the **known** poses (not estimated -- a bad
+hand-eye transform or corrupted pose stream will fail this even for
+genuinely correct SIFT matches), triangulates the survivors, and checks
+the resulting point cloud's scale against `--expected-diameter-mm` as a
+coarse order-of-magnitude plausibility bound (`--tolerance-factor`,
+default 5x either direction -- this is meant to catch a badly wrong scale,
+not to validate the true lumen diameter precisely).
+
+Reports per-pair match/point counts, reprojection error (should be a few
+px at most against known poses -- a warning fires above 5px median), and
+the plausibility verdict. A FAIL here means don't proceed to the
+expensive COLMAP/Open3D stages yet -- suspect the hand-eye transform, a
+corrupted pose stream, or (per project discussion) camera/Aurora
+timestamp mismatch during fast motion corrupting the frame/pose pairing
+for images captured while the tip was moving.
 
 ## Running the tests
 
