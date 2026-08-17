@@ -15,6 +15,8 @@ content.
 import cv2
 import numpy as np
 
+from inchiscope_reconstruction.frame_selection import pose_delta
+
 
 def enhance_contrast(gray_image, clip_limit=4.0, tile_grid_size=8):
     """CLAHE (contrast-limited adaptive histogram equalization) --
@@ -152,9 +154,12 @@ def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3
     pinned to a specific stage (no keypoints at all? matches found but
     failing the known-pose epipolar check? cheirality?) instead of just
     reporting "nothing survived"."""
+    baseline_m, rotation_deg = pose_delta(T_a, T_b)
     kp_a, desc_a = detect_sift(img_a, use_clahe, clahe_clip_limit, clahe_tile_size)
     kp_b, desc_b = detect_sift(img_b, use_clahe, clahe_clip_limit, clahe_tile_size)
     diag = {
+        'baseline_m': baseline_m,
+        'rotation_deg': rotation_deg,
         'kp_a': len(kp_a) if kp_a is not None else 0,
         'kp_b': len(kp_b) if kp_b is not None else 0,
         'ratio_matches': 0,

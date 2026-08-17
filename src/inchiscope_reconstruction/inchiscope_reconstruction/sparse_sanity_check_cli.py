@@ -22,6 +22,8 @@ Usage:
 import argparse
 import sys
 
+import numpy as np
+
 from inchiscope_reconstruction.calibration import load_camera_intrinsics, load_hand_eye_transform
 from inchiscope_reconstruction.bag_extraction import (
     IMAGE_TOPIC, POSE_TOPIC, read_bag, associate, apply_hand_eye,
@@ -88,8 +90,16 @@ def main():
     )
 
     diags = result['pair_diagnostics']
+    baselines_mm = np.array([d['baseline_m'] for d in diags]) * 1000.0
+    rotations_deg = np.array([d['rotation_deg'] for d in diags])
     print(f"Stage 3: attempted {result['pair_count']} pairs, {result['successful_pair_count']} "
           f"produced at least one triangulated point" + (' (CLAHE enabled)' if args.clahe else ''))
+    print(f"  actual pose baseline between paired frames (--pair-stride={args.pair_stride} apart, "
+          f"NOT the same as --min-baseline-m -- Stage 2 only guarantees that much between "
+          f"CONSECUTIVE kept frames, real motion over --pair-stride frames can still be small): "
+          f"translation min={baselines_mm.min():.2f}mm median={np.median(baselines_mm):.2f}mm "
+          f"max={baselines_mm.max():.2f}mm; rotation min={rotations_deg.min():.2f} deg "
+          f"median={np.median(rotations_deg):.2f} deg max={rotations_deg.max():.2f} deg")
     print('  per-stage funnel, summed across all attempted pairs:')
     print(f"    SIFT keypoints found (avg per image): "
           f"{sum(d['kp_a'] + d['kp_b'] for d in diags) / max(1, 2 * len(diags)):.0f}")
@@ -130,11 +140,27 @@ def main():
                   "-- more false matches will get through, but the epipolar filter below should reject "
                   "genuinely wrong ones).", file=sys.stderr)
         elif avg_epi < 8:
-            print('  DIAGNOSIS: matches are found, but nearly all fail the KNOWN-pose epipolar check -- '
-                  'this is the signature of a bad hand-eye transform or corrupted pose stream (the '
-                  'geometry the matches are checked against is wrong), not a texture/matching problem. '
-                  'Suspect the hand-eye calibration (still noisy/placeholder per project discussion) '
-                  'or the camera/Aurora timestamp mismatch during fast motion.', file=sys.stderr)
+            median_baseline_mm = float(np.median(baselines_mm))
+            healthy_baseline_mm = max(2.0, 0.05 * args.expected_diameter_mm)
+            if median_baseline_mm < healthy_baseline_mm:
+                print(f'  DIAGNOSIS: matches are found, but nearly all fail the epipolar/cheirality '
+                      f'checks -- AND the actual baseline between paired frames is small (median '
+                      f'{median_baseline_mm:.2f}mm, vs a rough {healthy_baseline_mm:.1f}mm floor for '
+                      f'well-conditioned triangulation at this scene scale). This looks like a near-'
+                      f'degenerate baseline problem, not necessarily a bad hand-eye/pose stream: '
+                      f'--pair-stride={args.pair_stride} isn\'t accumulating much real motion, likely '
+                      f'because Stage 2\'s redundancy filter only guarantees a *minimum* gap between '
+                      f'consecutive kept frames -- real motion over that many frames can still be tiny '
+                      f'if the tip moved slowly for a stretch. Try a larger --pair-stride before '
+                      f'suspecting calibration.', file=sys.stderr)
+            else:
+                print(f'  DIAGNOSIS: matches are found and the actual baseline between paired frames is '
+                      f'reasonable (median {median_baseline_mm:.2f}mm), but nearly all matches still fail '
+                      f'the KNOWN-pose epipolar check -- this is the signature of a bad hand-eye transform '
+                      f'or corrupted pose stream (the geometry the matches are checked against is wrong), '
+                      f'not a texture/baseline problem. Suspect the hand-eye calibration (still noisy/'
+                      f'placeholder per project discussion) or the camera/Aurora timestamp mismatch '
+                      f'during fast motion.', file=sys.stderr)
         else:
             print('  DIAGNOSIS: matches survive the epipolar check but all fail cheirality (behind one '
                   'or both cameras) -- suggests a sign/direction error somewhere in the pose or '

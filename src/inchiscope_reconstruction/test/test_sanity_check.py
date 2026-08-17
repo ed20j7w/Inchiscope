@@ -14,9 +14,10 @@ import cv2
 import pytest
 
 from inchiscope_reconstruction.calibration import to_T
+from inchiscope_reconstruction.frame_selection import pose_delta
 from inchiscope_reconstruction.sanity_check import (
     filter_by_epipolar_consistency, triangulate, reprojection_error, scale_plausibility,
-    sparse_sanity_check, detect_sift,
+    sparse_sanity_check, detect_sift, diagnose_pair,
 )
 
 K = np.array([[400., 0, 240], [0, 400., 240], [0, 0, 1]])
@@ -132,6 +133,22 @@ def test_sparse_sanity_check_end_to_end_with_real_sift_on_textured_plane():
     assert result['successful_pair_count'] == 1
     assert result['point_count'] > 100
     assert result['reproj_error_median_px'] < 1.0
+
+
+def test_diagnose_pair_reports_actual_pose_baseline():
+    """baseline_m/rotation_deg must reflect the ACTUAL relative motion
+    between the pair's known poses (matching frame_selection.pose_delta),
+    independent of --pair-stride or match/point outcomes -- this is what
+    lets the CLI tell a near-degenerate-baseline problem apart from a bad
+    hand-eye/pose stream when matches fail downstream."""
+    rng = np.random.default_rng(9)
+    T_a, T_b, _, _, _ = _make_pair(rng)
+    expected_baseline_m, expected_rotation_deg = pose_delta(T_a, T_b)
+
+    blank = np.zeros((50, 50, 3), dtype=np.uint8)
+    diag = diagnose_pair(blank, blank, K, T_a, T_b)
+    assert diag['baseline_m'] == pytest.approx(expected_baseline_m)
+    assert diag['rotation_deg'] == pytest.approx(expected_rotation_deg)
 
 
 def test_clahe_recovers_keypoints_from_low_contrast_real_structure():

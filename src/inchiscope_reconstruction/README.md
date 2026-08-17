@@ -118,22 +118,30 @@ coarse order-of-magnitude plausibility bound (`--tolerance-factor`,
 default 5x either direction -- this is meant to catch a badly wrong scale,
 not to validate the true lumen diameter precisely).
 
-Reports a **per-stage funnel** summed across all attempted pairs -- SIFT
-keypoints found, matches surviving the ratio test, matches surviving the
-epipolar check, points surviving cheirality -- specifically so a failure
-can be pinned to a stage instead of just "nothing survived". If
+Reports the **actual pose baseline/rotation** between paired frames (not
+just `--pair-stride` -- Stage 2's redundancy filter only guarantees a
+*minimum* gap between consecutive kept frames, so real motion over
+`--pair-stride` frames can still be small if the tip moved slowly for a
+stretch) and a **per-stage funnel** summed across all attempted pairs --
+SIFT keypoints found, matches surviving the ratio test, matches surviving
+the epipolar check, points surviving cheirality -- specifically so a
+failure can be pinned to a stage instead of just "nothing survived". If
 `point_count` ends up below `--min-points-for-plausibility` (default 20 --
 a handful of points can't give a meaningful scale estimate even if
 individually well-conditioned), it prints a specific diagnosis based on
 where the funnel actually died: keypoints too sparse (SIFT finding almost
 nothing -- a texture problem, independent of poses), matches too sparse
 after the ratio test (repetitive texture or `--pair-stride` too wide),
-matches dying at the epipolar check (the signature of a bad hand-eye
-transform or corrupted pose stream -- the *known* geometry they're
-checked against is wrong), or dying at cheirality (a sign/direction bug
-in the pose/projection convention, not a data problem). Otherwise reports
-reprojection error (should be a few px at most against known poses -- a
-warning fires above 5px median) and the scale plausibility verdict.
+matches dying at the epipolar/cheirality checks with a **small actual
+baseline** (near-degenerate triangulation geometry -- try a larger
+`--pair-stride` before suspecting calibration) vs. a **reasonable
+baseline** (the real signature of a bad hand-eye transform or corrupted
+pose stream -- the *known* geometry the matches are checked against is
+wrong), or dying at cheirality alone with good epipolar survival (a sign/
+direction bug in the pose/projection convention, not a data problem).
+Otherwise reports reprojection error (should be a few px at most against
+known poses -- a warning fires above 5px median) and the scale
+plausibility verdict.
 
 **On a real bag, SIFT found only ~13 keypoints/image** (vs. ~6000 on a
 synthetic textured-test image) -- confirmed as a real local-contrast
