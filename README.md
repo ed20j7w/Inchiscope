@@ -17,6 +17,7 @@ src/
 ├── inchiscope_control/        # state machine, action orchestration      [Phase 3 - skeleton]
 ├── inchiscope_aurora/         # EM tracker pose (C++/ament_cmake)        [Phase 4 - implemented, needs vendor SDK + .rom files]
 ├── inchiscope_camera/         # NanEye feed via capture card             [Phase 4 - functional]
+├── inchiscope_reconstruction/ # offline mesh from a bag (COLMAP+Open3D)  [Phase 5 - stage 1-2 implemented]
 └── inchiscope_bringup/        # launch files, params, rosbag2 recording
 ```
 

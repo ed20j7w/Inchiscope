@@ -17,6 +17,7 @@ third_party/
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # rosbag2 output
 *_bag/
@@ -29,3 +30,6 @@ rosbag2_*/
 # default --out-dir/--out inside scripts/, not something to duplicate/track.
 src/inchiscope_camera/scripts/calib_frames/
 src/inchiscope_camera/scripts/camera_info.yaml
+
+# extract_and_select's --out-dir scratch inspection output -- not something to track
+stage2_frames/

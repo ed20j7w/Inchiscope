@@ -405,8 +405,16 @@ string current_phase
    cropped out (confirmed clean 480x480), calibrated (0.55px RMS reprojection error), and
    `/camera/camera_info` is now published — see section 5.
 5. **`rosbag2` recording + offline reconstruction pipeline** — last, once pose and image streams
-   are individually verified. **Recording half done**: `record.launch.py` captures the pose and
+   are individually verified. **Recording done**: `record.launch.py` captures the pose and
    image topics with a timestamped bag name, verified as the correct approach since rosbag2 keeps
-   each topic's own message timestamp for later time-correlation. The offline reconstruction
-   pipeline itself (combining recorded camera + EM pose data into a 3D reconstruction) has not
-   been started.
+   each topic's own message timestamp for later time-correlation. **Hand-eye calibration done**
+   (`inchiscope_camera/scripts/calibrate_hand_eye.py` solves for the Aurora sensor -> camera
+   rigid transform; see that package's README for the procedure and known noise-floor caveats).
+   **Reconstruction pipeline (`inchiscope_reconstruction`): Stage 1 (extract & associate) and
+   Stage 2 (frame selection) implemented and unit-tested against synthetic data** -- reads a bag,
+   associates each frame with the nearest-in-time Aurora pose (dropping stale pairings), applies
+   the hand-eye transform to get camera pose in the reference frame, then drops blurry/redundant
+   frames and undistorts what's kept. Not yet run against real hardware data (needs a real bag
+   from an anchored-sweep capture -- see `inchiscope_reconstruction/README.md`). Stage 3 (sparse
+   sanity check) and stages 4-7 (COLMAP dense stereo -> Open3D TSDF fusion -> mesh, wrapped behind
+   a `ReconstructFromBag` action) have not been started.

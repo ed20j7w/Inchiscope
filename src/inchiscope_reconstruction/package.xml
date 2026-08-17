@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>inchiscope_reconstruction</name>
+  <version>0.1.0</version>
+  <description>Offline 3D reconstruction from a recorded rosbag: fixed-pose dense stereo (COLMAP) fused into a mesh (Open3D), using the Aurora EM tracker for metric camera pose instead of estimating it from the images.</description>
+  <maintainer email="ed20j7w@leeds.ac.uk">Inchiscope</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>rosbag2_py</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
