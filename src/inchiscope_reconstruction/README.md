@@ -118,10 +118,22 @@ coarse order-of-magnitude plausibility bound (`--tolerance-factor`,
 default 5x either direction -- this is meant to catch a badly wrong scale,
 not to validate the true lumen diameter precisely).
 
-Reports per-pair match/point counts, reprojection error (should be a few
-px at most against known poses -- a warning fires above 5px median), and
-the plausibility verdict. A FAIL here means don't proceed to the
-expensive COLMAP/Open3D stages yet -- suspect the hand-eye transform, a
+Reports a **per-stage funnel** summed across all attempted pairs -- SIFT
+keypoints found, matches surviving the ratio test, matches surviving the
+epipolar check, points surviving cheirality -- specifically so a failure
+can be pinned to a stage instead of just "nothing survived". If
+`point_count` ends up zero, it prints a specific diagnosis based on where
+the funnel actually died: keypoints too sparse (SIFT finding almost
+nothing -- a texture problem, independent of poses), matches too sparse
+after the ratio test (repetitive texture or `--pair-stride` too wide),
+matches dying at the epipolar check (the signature of a bad hand-eye
+transform or corrupted pose stream -- the *known* geometry they're
+checked against is wrong), or dying at cheirality (a sign/direction bug
+in the pose/projection convention, not a data problem). Otherwise reports
+reprojection error (should be a few px at most against known poses -- a
+warning fires above 5px median) and the scale plausibility verdict. A
+FAIL here means don't proceed to the expensive COLMAP/Open3D stages yet --
+suspect the hand-eye transform, a
 corrupted pose stream, or (per project discussion) camera/Aurora
 timestamp mismatch during fast motion corrupting the frame/pose pairing
 for images captured while the tip was moving.

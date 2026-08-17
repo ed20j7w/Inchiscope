@@ -16,15 +16,19 @@ import cv2
 import numpy as np
 
 
-def match_pair(img_a, img_b, ratio=0.75):
-    """SIFT detect + knn-match with Lowe's ratio test. Returns (pts_a,
-    pts_b): Nx2 pixel-coordinate arrays of matched keypoints, same order,
-    same length."""
-    gray_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY) if img_a.ndim == 3 else img_a
-    gray_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY) if img_b.ndim == 3 else img_b
+def detect_sift(img):
+    """Returns (keypoints, descriptors) -- split out from match_pair so
+    keypoint COUNTS (is SIFT finding anything at all in this content?) can
+    be inspected independently of whether any of them go on to match."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
     sift = cv2.SIFT_create()
-    kp_a, desc_a = sift.detectAndCompute(gray_a, None)
-    kp_b, desc_b = sift.detectAndCompute(gray_b, None)
+    return sift.detectAndCompute(gray, None)
+
+
+def match_descriptors(kp_a, desc_a, kp_b, desc_b, ratio=0.75):
+    """knn-match with Lowe's ratio test. Returns (pts_a, pts_b): Nx2
+    pixel-coordinate arrays of matched keypoints, same order, same
+    length."""
     if desc_a is None or desc_b is None or len(kp_a) < 2 or len(kp_b) < 2:
         return np.empty((0, 2)), np.empty((0, 2))
     matcher = cv2.BFMatcher(cv2.NORM_L2)
@@ -33,6 +37,14 @@ def match_pair(img_a, img_b, ratio=0.75):
     pts_a = np.array([kp_a[m.queryIdx].pt for m in good]) if good else np.empty((0, 2))
     pts_b = np.array([kp_b[m.trainIdx].pt for m in good]) if good else np.empty((0, 2))
     return pts_a, pts_b
+
+
+def match_pair(img_a, img_b, ratio=0.75):
+    """SIFT detect + match in one call -- convenience wrapper combining
+    detect_sift() + match_descriptors()."""
+    kp_a, desc_a = detect_sift(img_a)
+    kp_b, desc_b = detect_sift(img_b)
+    return match_descriptors(kp_a, desc_a, kp_b, desc_b, ratio)
 
 
 def _fundamental_from_known_poses(K, T_a, T_b):
@@ -114,6 +126,49 @@ def reprojection_error(pts3d, pts2d, K, T):
     return np.linalg.norm(proj_px - pts2d, axis=1)
 
 
+def diagnose_pair(img_a, img_b, K, T_a, T_b, ratio=0.75, max_epipolar_error_px=3.0):
+    """Runs one frame pair through every stage (SIFT detect -> ratio-test
+    match -> epipolar-consistency filter -> triangulate -> cheirality),
+    recording the surviving count at each step regardless of where (or
+    whether) it ultimately succeeds. This is what lets a failure be
+    pinned to a specific stage (no keypoints at all? matches found but
+    failing the known-pose epipolar check? cheirality?) instead of just
+    reporting "nothing survived"."""
+    kp_a, desc_a = detect_sift(img_a)
+    kp_b, desc_b = detect_sift(img_b)
+    diag = {
+        'kp_a': len(kp_a) if kp_a is not None else 0,
+        'kp_b': len(kp_b) if kp_b is not None else 0,
+        'ratio_matches': 0,
+        'epipolar_matches': 0,
+        'triangulated_points': 0,
+        'points': np.empty((0, 3)),
+        'reproj_errors': np.empty((0,)),
+    }
+    pts_a, pts_b = match_descriptors(kp_a, desc_a, kp_b, desc_b, ratio)
+    diag['ratio_matches'] = len(pts_a)
+    if len(pts_a) == 0:
+        return diag
+
+    pts_a, pts_b = filter_by_epipolar_consistency(pts_a, pts_b, K, T_a, T_b, max_epipolar_error_px)
+    diag['epipolar_matches'] = len(pts_a)
+    if len(pts_a) == 0:
+        return diag
+
+    pts3d, valid = triangulate(pts_a, pts_b, K, T_a, T_b)
+    pts3d, pts_a, pts_b = pts3d[valid], pts_a[valid], pts_b[valid]
+    diag['triangulated_points'] = len(pts3d)
+    if len(pts3d) == 0:
+        return diag
+
+    diag['points'] = pts3d
+    diag['reproj_errors'] = np.concatenate([
+        reprojection_error(pts3d, pts_a, K, T_a),
+        reprojection_error(pts3d, pts_b, K, T_b),
+    ])
+    return diag
+
+
 def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_error_px=3.0):
     """kept_frames: [(t_sec, image, T_ref2cam, pose_age_sec), ...] from
     Stage 2 (frame_selection.select_frames). Matches + triangulates over
@@ -121,50 +176,32 @@ def sparse_sanity_check(kept_frames, K, pair_stride=5, ratio=0.75, max_epipolar_
     Stage 2's redundancy filter already keeps close to the minimum useful
     separation), pools all triangulated points across pairs.
 
-    Returns None if no pair produced enough surviving points to say
-    anything, otherwise a dict with pair_count, point_count, per-pair
-    match_counts, the pooled points (Nx3, reference frame, metres), and
-    reprojection error stats (px).
+    Always returns a dict (never None, even if nothing triangulated) with
+    pair_diagnostics -- one diagnose_pair() result per attempted pair, so
+    a failure can be pinned to a specific stage -- plus point_count,
+    pooled points, and reprojection error stats aggregated over whatever
+    did survive (empty/zero if nothing did).
     """
-    all_points = []
-    all_reproj_errors = []
-    match_counts = []
-
+    pair_diagnostics = []
     for i in range(0, len(kept_frames) - pair_stride, pair_stride):
         _, img_a, T_a, _ = kept_frames[i]
         _, img_b, T_b, _ = kept_frames[i + pair_stride]
+        pair_diagnostics.append(diagnose_pair(img_a, img_b, K, T_a, T_b, ratio, max_epipolar_error_px))
 
-        pts_a, pts_b = match_pair(img_a, img_b, ratio=ratio)
-        if len(pts_a) < 8:
-            continue
-        pts_a, pts_b = filter_by_epipolar_consistency(pts_a, pts_b, K, T_a, T_b, max_epipolar_error_px)
-        if len(pts_a) < 8:
-            continue
-        pts3d, valid = triangulate(pts_a, pts_b, K, T_a, T_b)
-        pts3d, pts_a, pts_b = pts3d[valid], pts_a[valid], pts_b[valid]
-        if len(pts3d) == 0:
-            continue
+    all_points = [d['points'] for d in pair_diagnostics if len(d['points']) > 0]
+    all_reproj_errors = [d['reproj_errors'] for d in pair_diagnostics if len(d['reproj_errors']) > 0]
 
-        err_a = reprojection_error(pts3d, pts_a, K, T_a)
-        err_b = reprojection_error(pts3d, pts_b, K, T_b)
-        all_points.append(pts3d)
-        all_reproj_errors.append(err_a)
-        all_reproj_errors.append(err_b)
-        match_counts.append(len(pts3d))
-
-    if not all_points:
-        return None
-
-    points = np.concatenate(all_points, axis=0)
-    reproj_errors = np.concatenate(all_reproj_errors, axis=0)
+    points = np.concatenate(all_points, axis=0) if all_points else np.empty((0, 3))
+    reproj_errors = np.concatenate(all_reproj_errors, axis=0) if all_reproj_errors else np.empty((0,))
     return {
-        'pair_count': len(match_counts),
+        'pair_count': len(pair_diagnostics),
+        'successful_pair_count': len(all_points),
         'point_count': len(points),
-        'match_counts': match_counts,
+        'pair_diagnostics': pair_diagnostics,
         'points': points,
-        'reproj_error_mean_px': float(reproj_errors.mean()),
-        'reproj_error_median_px': float(np.median(reproj_errors)),
-        'reproj_error_p90_px': float(np.percentile(reproj_errors, 90)),
+        'reproj_error_mean_px': float(reproj_errors.mean()) if len(reproj_errors) else None,
+        'reproj_error_median_px': float(np.median(reproj_errors)) if len(reproj_errors) else None,
+        'reproj_error_p90_px': float(np.percentile(reproj_errors, 90)) if len(reproj_errors) else None,
     }
 
 

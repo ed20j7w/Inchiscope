@@ -16,6 +16,7 @@ import pytest
 from inchiscope_reconstruction.calibration import to_T
 from inchiscope_reconstruction.sanity_check import (
     filter_by_epipolar_consistency, triangulate, reprojection_error, scale_plausibility,
+    sparse_sanity_check,
 )
 
 K = np.array([[400., 0, 240], [0, 400., 240], [0, 0, 1]])
@@ -94,6 +95,43 @@ def test_epipolar_filter_catches_bad_pose():
     T_b_wrong = to_T(T_b_true[:3, :3] @ R_bad, T_b_true[:3, 3] + np.array([0.05, 0.03, -0.02]))
     kept_a, _ = filter_by_epipolar_consistency(pts_a, pts_b, K, T_a, T_b_wrong, max_epipolar_error_px=3.0)
     assert len(kept_a) < 0.5 * len(pts_a)
+
+
+def test_sparse_sanity_check_end_to_end_with_real_sift_on_textured_plane():
+    """Unlike the other tests here, this feeds sparse_sanity_check actual
+    images and runs real SIFT detection/matching -- not hand-fed pixel
+    coordinates -- by synthesizing a textured planar scene and warping it
+    between two known camera poses via the pose-induced homography. This
+    is the one test that can meaningfully stand in for "does the whole
+    pipeline work on real-looking image content", and is the baseline to
+    compare a real-bag failure against: if this passes but a real capture
+    doesn't, the problem is the scene's texture or the pose stream, not
+    this module's logic."""
+    rng = np.random.default_rng(7)
+    size = (480, 480)
+    noise = rng.integers(0, 256, size, dtype=np.uint8)
+    img_a_gray = cv2.GaussianBlur(noise, (3, 3), 0.8)
+
+    T_a = to_T(np.eye(3), np.zeros(3))
+    R_b, _ = cv2.Rodrigues(rng.uniform(-0.05, 0.05, 3))
+    T_b = to_T(R_b, np.array([0.003, 0.001, 0.0]))
+
+    Z0 = 0.02  # metres -- planar scene depth
+    plane_normal = np.array([0, 0, 1.0])
+    T_camA_to_camB = np.linalg.inv(T_b) @ T_a
+    R_rel, t_rel = T_camA_to_camB[:3, :3], T_camA_to_camB[:3, 3]
+    H = K @ (R_rel + np.outer(t_rel, plane_normal) / Z0) @ np.linalg.inv(K)
+    img_b_gray = cv2.warpPerspective(img_a_gray, H, size)
+
+    kept_frames = [
+        (0.0, cv2.cvtColor(img_a_gray, cv2.COLOR_GRAY2BGR), T_a, 0.01),
+        (0.1, cv2.cvtColor(img_b_gray, cv2.COLOR_GRAY2BGR), T_b, 0.01),
+    ]
+    result = sparse_sanity_check(kept_frames, K, pair_stride=1, ratio=0.75, max_epipolar_error_px=3.0)
+    assert result['pair_count'] == 1
+    assert result['successful_pair_count'] == 1
+    assert result['point_count'] > 100
+    assert result['reproj_error_median_px'] < 1.0
 
 
 def test_scale_plausibility_flags_order_of_magnitude_errors():

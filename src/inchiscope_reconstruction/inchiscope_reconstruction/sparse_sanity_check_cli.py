@@ -79,17 +79,47 @@ def main():
         ratio=args.ratio,
         max_epipolar_error_px=args.max_epipolar_error_px,
     )
-    if result is None:
-        print('Stage 3: no frame pair produced enough surviving matches to triangulate anything. '
-              'This itself is a bad sign -- either the content has too little texture for SIFT to '
-              'find matches at all, --pair-stride is too large (baseline too wide for matching to '
-              'survive), or the pose stream/hand-eye transform is wrong enough that even correct '
-              'matches keep failing the epipolar check.', file=sys.stderr)
+
+    diags = result['pair_diagnostics']
+    print(f"Stage 3: attempted {result['pair_count']} pairs, {result['successful_pair_count']} "
+          f"produced at least one triangulated point")
+    print('  per-stage funnel, summed across all attempted pairs:')
+    print(f"    SIFT keypoints found (avg per image): "
+          f"{sum(d['kp_a'] + d['kp_b'] for d in diags) / max(1, 2 * len(diags)):.0f}")
+    print(f"    matches surviving ratio test:        {sum(d['ratio_matches'] for d in diags)}")
+    print(f"    matches surviving epipolar check:    {sum(d['epipolar_matches'] for d in diags)}")
+    print(f"    points surviving cheirality:         {sum(d['triangulated_points'] for d in diags)}")
+
+    if result['point_count'] == 0:
+        avg_kp = sum(d['kp_a'] + d['kp_b'] for d in diags) / max(1, 2 * len(diags))
+        avg_ratio = sum(d['ratio_matches'] for d in diags) / max(1, len(diags))
+        avg_epi = sum(d['epipolar_matches'] for d in diags) / max(1, len(diags))
+        if avg_kp < 20:
+            print('  DIAGNOSIS: SIFT is barely finding any keypoints at all -- this content has too '
+                  'little texture/contrast for SIFT specifically, independent of matching or pose '
+                  'correctness. Consider a contrast-enhancement pass (e.g. CLAHE) before detection, '
+                  'a detector better suited to low-texture surfaces, or accept that sparse feature '
+                  'matching is not viable on this footage and rely on Stage 4-5\'s dense stereo '
+                  'instead (which does not depend on distinctive sparse keypoints the same way).', file=sys.stderr)
+        elif avg_ratio < 8:
+            print("  DIAGNOSIS: SIFT finds keypoints but the ratio test rejects nearly all matches -- "
+                  "consistent with repetitive/self-similar texture (common on smooth mucosa) making "
+                  "matches ambiguous, or --pair-stride being too wide for appearance to survive that "
+                  "much viewpoint change. Try a smaller --pair-stride, or loosen --ratio (e.g. 0.85-0.9 "
+                  "-- more false matches will get through, but the epipolar filter below should reject "
+                  "genuinely wrong ones).", file=sys.stderr)
+        elif avg_epi < 8:
+            print('  DIAGNOSIS: matches are found, but nearly all fail the KNOWN-pose epipolar check -- '
+                  'this is the signature of a bad hand-eye transform or corrupted pose stream (the '
+                  'geometry the matches are checked against is wrong), not a texture/matching problem. '
+                  'Suspect the hand-eye calibration (still noisy/placeholder per project discussion) '
+                  'or the camera/Aurora timestamp mismatch during fast motion.', file=sys.stderr)
+        else:
+            print('  DIAGNOSIS: matches survive the epipolar check but all fail cheirality (behind one '
+                  'or both cameras) -- suggests a sign/direction error somewhere in the pose or '
+                  'projection convention rather than a data-quality problem.', file=sys.stderr)
         sys.exit(1)
 
-    print(f"Stage 3: {result['pair_count']} frame pairs produced matches, "
-          f"{result['point_count']} points triangulated total "
-          f"(per-pair counts: {result['match_counts']})")
     print(f"  reprojection error (px): mean={result['reproj_error_mean_px']:.2f} "
           f"median={result['reproj_error_median_px']:.2f} p90={result['reproj_error_p90_px']:.2f}")
     if result['reproj_error_median_px'] > 5.0:
