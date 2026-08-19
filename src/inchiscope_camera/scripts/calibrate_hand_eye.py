@@ -369,10 +369,25 @@ def cmd_solve(args):
               "and retry.", file=sys.stderr)
         sys.exit(1)
 
-    with open(os.path.join(args.frames_dir, 'poses.yaml')) as f:
-        manifest = yaml.safe_load(f)
-    captures = manifest['captures']
-    if len(captures) < 3:
+    # Each --frames-dir is an independent (frames, poses.yaml) capture
+    # session -- filenames aren't unique across sessions (every session
+    # numbers its own captures from frame_000.png), so track which
+    # directory each capture came from rather than flattening to bare
+    # filenames.
+    all_captures = []
+    total_captures = 0
+    for frames_dir in args.frames_dir:
+        manifest_path = os.path.join(frames_dir, 'poses.yaml')
+        try:
+            with open(manifest_path) as f:
+                manifest = yaml.safe_load(f)
+        except FileNotFoundError:
+            print(f'No poses.yaml in {frames_dir}, skipping that directory entirely.', file=sys.stderr)
+            continue
+        for cap in manifest['captures']:
+            all_captures.append((frames_dir, cap))
+        total_captures += len(manifest['captures'])
+    if len(all_captures) < 3:
         print('Need at least 3 captures to solve (15-20+ recommended).', file=sys.stderr)
         sys.exit(1)
 
@@ -387,8 +402,12 @@ def cmd_solve(args):
     used_frame_names = []
     used, skipped = 0, 0
 
-    for cap in captures:
-        path = os.path.join(args.frames_dir, cap['frame'])
+    for frames_dir, cap in all_captures:
+        path = os.path.join(frames_dir, cap['frame'])
+        # Prefixed with the source directory in every report below --
+        # "frame_007.png" alone is ambiguous once multiple sessions are
+        # combined, since each session numbers its own captures from 0.
+        display_name = f'{os.path.basename(os.path.normpath(frames_dir))}/{cap["frame"]}'
         img = cv2.imread(path)
         if img is None:
             print(f"  couldn't read {path}, skipping")
@@ -416,10 +435,12 @@ def cmd_solve(args):
 
         R_gripper2base.append(quat_to_rotmat(*cap['orientation_xyzw']))
         t_gripper2base.append(np.array(cap['position'], dtype=np.float64))
-        used_frame_names.append(cap['frame'])
+        used_frame_names.append(display_name)
         used += 1
 
-    print(f'Used {used}/{len(captures)} captures, skipped {skipped}')
+    print(f'Used {used}/{total_captures} captures across '
+          f'{len(args.frames_dir)} director{"y" if len(args.frames_dir) == 1 else "ies"}, '
+          f'skipped {skipped}')
     if used < 3:
         print('Fewer than 3 usable captures -- cannot solve.', file=sys.stderr)
         sys.exit(1)
@@ -596,7 +617,7 @@ def main():
     p_capture.set_defaults(func=cmd_capture)
 
     p_solve = sub.add_parser('solve', parents=[common])
-    p_solve.add_argument('--frames-dir', default='handeye_frames')
+    p_solve.add_argument('--frames-dir', nargs='+', default=['handeye_frames'], help='one or more hand-eye capture session directories, each with its own poses.yaml -- combining multiple sessions into one solve pools their captures for a single AX=XB solve (more captures, and often better rotation diversity if different sessions happened to leave different axes weakly constrained) rather than just letting you compare separate solves')
     p_solve.add_argument('--camera-info', required=True, help='path to camera_info.yaml (e.g. src/inchiscope_bringup/config/camera_info.yaml)')
     p_solve.add_argument('--method', choices=[n for n, _ in HAND_EYE_METHODS], default='TSAI')
     p_solve.add_argument('--max-spread-warn-mm', type=float, default=2.0, help='warn if the checkerboard-in-reference-frame validation spread exceeds this many mm on any axis (default: 2.0)')

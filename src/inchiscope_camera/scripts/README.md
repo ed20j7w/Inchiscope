@@ -190,12 +190,34 @@ python3 calibrate_hand_eye.py solve --frames-dir handeye_frames/ \
     --out hand_eye_transform.yaml
 ```
 
+**`--frames-dir` accepts more than one capture session**
+(`--frames-dir handeye_frames0/ handeye_frames1/ handeye_frames2/`), each
+with its own `poses.yaml`, pooling every session's captures into one
+solve. **Confirmed on real data this does not reliably help, and can hurt**:
+combining 3 real sessions (69 captures total) gave a worse result (9.8mm
+spread, PARK) than the best individual session alone (6.7mm) -- the
+checkerboard-in-reference validation implicitly assumes the board sat in
+the exact same physical spot for every pooled capture, which is a
+reasonable assumption *within* one session (you set it down once) but not
+necessarily *across* separate sessions unless you were careful never to
+move it between them. This is a different situation from combining
+frames for intrinsics calibration above, which has no such fixed-target
+assumption and reliably helps. Only combine hand-eye sessions if you're
+confident the board never moved between them; otherwise solve each
+session separately and use whichever gives the tightest spread.
+
 `solve` cross-checks all 5 methods OpenCV supports (TSAI/PARK/HORAUD/
 ANDREFF/DANIILIDIS) for rough agreement, then validates the chosen one by
 checking how consistent the *inferred* checkerboard-in-reference-frame
 pose is across all captures -- since the board never actually moved during
 the session, that inferred pose should come out (near-)identical every
-time if the solve is correct. A large spread (warns above 2mm on any axis
+time if the solve is correct. **TSAI (the default `--method`) is not
+always the most numerically robust of the 5** -- on the combined-session
+data above it came out badly wrong (32.9mm) while PARK/HORAUD/DANIILIDIS
+agreed tightly with each other (~7.7-9.8mm); always check the 5-method
+cross-check printout for agreement before trusting whichever `--method`
+you asked for, and switch `--method` if the default disagrees with the
+pack. A large spread (warns above 2mm on any axis
 by default) usually means the board moved, too few/too rotation-poor
 poses were captured, or a pose/frame got mismatched.
 
