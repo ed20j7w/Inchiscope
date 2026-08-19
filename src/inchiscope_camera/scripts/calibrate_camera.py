@@ -46,7 +46,6 @@ you print a different-sized board.
 """
 
 import argparse
-import glob
 import os
 import sys
 
@@ -54,7 +53,7 @@ import cv2
 import numpy as np
 import yaml
 
-from calibration_common import find_corners
+from calibration_common import find_corners, gather_calibration_views
 
 
 def cmd_capture(args):
@@ -120,33 +119,14 @@ def cmd_capture(args):
 
 
 def cmd_calibrate(args):
-    paths = sorted(glob.glob(os.path.join(args.frames_dir, '*.png')))
-    if not paths:
-        print(f'No .png frames found in {args.frames_dir}', file=sys.stderr)
+    objpoints, imgpoints, frame_paths, image_size, skipped = gather_calibration_views(
+        args.frames_dir, args.corners_x, args.corners_y, args.square_size_mm,
+        object_point_dtype=np.float32,
+    )
+    if not objpoints:
+        print('No usable frames found across all --frames-dir.', file=sys.stderr)
         sys.exit(1)
-
-    objp = np.zeros((args.corners_x * args.corners_y, 3), np.float32)
-    objp[:, :2] = np.mgrid[0:args.corners_x, 0:args.corners_y].T.reshape(-1, 2)
-    objp *= args.square_size_mm
-
-    objpoints = []
-    imgpoints = []
-    image_size = None
-    used, skipped = 0, 0
-
-    for path in paths:
-        img = cv2.imread(path)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        if image_size is None:
-            image_size = (gray.shape[1], gray.shape[0])
-        found, corners = find_corners(gray, args.corners_x, args.corners_y)
-        if not found:
-            print(f'  no board found in {path}, skipping')
-            skipped += 1
-            continue
-        objpoints.append(objp)
-        imgpoints.append(corners)
-        used += 1
+    used = len(objpoints)
 
     if used < 10:
         print(f'Only {used} usable frames (skipped {skipped}) -- capture more '
@@ -156,7 +136,7 @@ def cmd_calibrate(args):
         objpoints, imgpoints, image_size, None, None,
     )
 
-    print(f'Used {used}/{len(paths)} frames, skipped {skipped}')
+    print(f'Used {used} frames across {len(args.frames_dir)} director{"y" if len(args.frames_dir) == 1 else "ies"}, skipped {skipped}')
     print(f'RMS reprojection error: {reproj_err:.4f} px')
     if reproj_err > 1.0:
         print('  >1px is high for this image size -- check the board is flat, '
@@ -219,7 +199,7 @@ def main():
     p_capture.set_defaults(func=cmd_capture)
 
     p_calibrate = sub.add_parser('calibrate', parents=[common])
-    p_calibrate.add_argument('--frames-dir', default='calib_frames')
+    p_calibrate.add_argument('--frames-dir', nargs='+', default=['calib_frames'], help='one or more directories of *.png calibration frames -- combine a dedicated intrinsics session with hand-eye capture sessions here too (e.g. --frames-dir calib_frames handeye_frames handeye_frames1 handeye_frames2), as long as every directory used the same physical square size and the same crop/resolution')
     p_calibrate.add_argument('--out', default='camera_info.yaml')
     p_calibrate.set_defaults(func=cmd_calibrate)
 
