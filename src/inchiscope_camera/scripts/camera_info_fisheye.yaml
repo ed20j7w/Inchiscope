@@ -1,0 +1,22 @@
+image_width: 480
+image_height: 480
+camera_name: naneye
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [338.14212112516634, 0.0, 268.4003476985967, 0.0, 337.97512877908264, 252.65983667606483,
+    0.0, 0.0, 1.0]
+distortion_model: equidistant
+distortion_coefficients:
+  rows: 1
+  cols: 4
+  data: [-0.04984468284876172, 0.04558254507641219, -0.12018419323324106, 0.09211253981485637]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [338.14212112516634, 0.0, 268.4003476985967, 0.0, 0.0, 337.97512877908264,
+    252.65983667606483, 0.0, 0.0, 0.0, 1.0, 0.0]
