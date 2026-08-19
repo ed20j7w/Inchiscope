@@ -12,6 +12,7 @@ firmware/
 src/
 ├── inchiscope_msgs/           # rosidl interfaces (msg + action)
 ├── inchiscope_serial_bridge/  # PC <-> Mega translation layer            [Phase 1 - done]
+├── inchiscope_debug_gui/      # PyQt debug GUI, drives /firmware/* directly [Phase 1 - implemented]
 ├── inchiscope_pba_control/    # CC model + piston targets                [Phase 2 - skeleton]
 ├── inchiscope_ab_control/     # diameter -> pressure, safety clamp       [Phase 2 - skeleton]
 ├── inchiscope_control/        # state machine, action orchestration      [Phase 3 - skeleton]
@@ -183,6 +184,7 @@ ros2 run inchiscope_serial_bridge serial_bridge_node --ros-args --params-file sr
 ros2 run inchiscope_aurora aurora_tracker_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
 ros2 run inchiscope_camera camera_node --ros-args --params-file src/inchiscope_bringup/config/params.yaml
 ros2 run inchiscope_camera camera_viewer_node
+ros2 run inchiscope_debug_gui debug_gui   # bench-test regulators/valves/actuators directly, see src/inchiscope_debug_gui/README.md
 ```
 
 ### Raw serial bench test (no ROS2 required)
