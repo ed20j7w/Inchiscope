@@ -42,7 +42,7 @@ def main():
     parser.add_argument('--out-dir', default=None, help='if set, writes the kept, undistorted frames here as PNGs for visual inspection')
     args = parser.parse_args()
 
-    K, D, img_w, img_h = load_camera_intrinsics(args.camera_info)
+    K, D, distortion_model, img_w, img_h = load_camera_intrinsics(args.camera_info)
     R_ce, t_ce = load_hand_eye_transform(args.hand_eye)
 
     images, poses = read_bag(args.bag_path, args.image_topic, args.pose_topic)
@@ -87,6 +87,7 @@ def main():
         blur_threshold=args.blur_threshold,
         min_baseline_m=args.min_baseline_m,
         min_rotation_deg=args.min_rotation_deg,
+        distortion_model=distortion_model,
     )
     print(f'Stage 2: kept {len(kept)}/{len(with_poses)} frames '
           f'({dropped_blur} dropped as blurry, {dropped_redundant} dropped as redundant)')

@@ -1,6 +1,19 @@
 #!/usr/bin/env python3
 """Interactive intrinsic calibration for the NanEye/OV6948 capture-card camera.
 
+Uses the standard pinhole + radial-tangential (plumb_bob) distortion model
+via cv2.calibrateCamera. This is only a good fit up to roughly 90-100deg
+field of view -- the NanEye ships in variants from 90deg up to 160deg (a
+120deg unit is a real, named ams-OSRAM part). If your lens is at or above
+that range, use calibrate_camera_fisheye.py instead, which fits OpenCV's
+fisheye/equidistant model via cv2.fisheye.calibrate -- fitting a wide lens
+with this script's model reproduces the same distortion-model-mismatch bias
+no amount of recapturing or recalibrating with *this* script can fix, since
+recalibrating just refits the same wrong model again. Both scripts write
+the same camera_info.yaml layout (only distortion_model and the coefficient
+count differ), so every downstream consumer picks the right math
+automatically based on that field -- see inchiscope_camera/README.md.
+
 Two subcommands:
     capture     Live view against /dev/videoN; press SPACE to grab a frame
                 when the checkerboard is detected and highlighted, 'q' to
@@ -41,23 +54,7 @@ import cv2
 import numpy as np
 import yaml
 
-
-def find_corners(gray, corners_x, corners_y):
-    """Tries the robust SB detector first (handles the uneven ring-light
-    illumination typical of an endoscope's onboard LED better than the
-    classic detector), falls back to the classic one."""
-    size = (corners_x, corners_y)
-    found, corners = cv2.findChessboardCornersSB(gray, size)
-    if found:
-        return found, corners
-    found, corners = cv2.findChessboardCorners(
-        gray, size,
-        cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE + cv2.CALIB_CB_FAST_CHECK,
-    )
-    if found:
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-        corners = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)
-    return found, corners
+from calibration_common import find_corners
 
 
 def cmd_capture(args):

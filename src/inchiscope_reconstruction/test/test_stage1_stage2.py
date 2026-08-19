@@ -125,3 +125,41 @@ def test_select_frames_drops_blurry_and_redundant():
     assert dropped_blur == 1
     assert dropped_redundant == 1
     assert len(kept) == 2
+
+
+def test_select_frames_defaults_to_plumb_bob_undistort():
+    """distortion_model defaults to 'plumb_bob' (cv2.calibrateCamera's
+    model, from calibrate_camera.py) so every pre-existing caller that
+    doesn't pass it keeps behaving exactly as before."""
+    K = np.array([[80.0, 0, 50.0], [0, 80.0, 50.0], [0, 0, 1.0]])
+    D = np.array([0.05, -0.01, 0.001, -0.0005, 0.0])
+    frames = [_make_frame(0.0, 0.0)]
+    kept, _, _ = select_frames(frames, K, D, blur_threshold=0.0)
+    expected = cv2.undistort(frames[0][1], K, D)
+    assert np.array_equal(kept[0][1], expected)
+
+
+def test_select_frames_uses_fisheye_undistort_for_equidistant_model():
+    """A camera_info.yaml written by calibrate_camera_fisheye.py
+    (distortion_model: equidistant, 4 coefficients) must be undistorted
+    with cv2.fisheye.undistortImage, not cv2.undistort -- the two models
+    interpret D's coefficients completely differently, so using the wrong
+    one doesn't just undistort slightly wrong, it actively distorts the
+    image further, worst right at the frame edges a wide lens needs most."""
+    K = np.array([[80.0, 0, 50.0], [0, 80.0, 50.0], [0, 0, 1.0]])
+    D_fisheye = np.array([-0.05, 0.01, -0.002, 0.0005])  # k1,k2,k3,k4
+    frames = [_make_frame(0.0, 0.0)]
+
+    kept, _, _ = select_frames(
+        frames, K, D_fisheye, blur_threshold=0.0, distortion_model='equidistant',
+    )
+    expected = cv2.fisheye.undistortImage(
+        frames[0][1], K, D_fisheye, Knew=K, new_size=(100, 100),
+    )
+    assert np.array_equal(kept[0][1], expected)
+
+    # And the plumb_bob path must NOT be what actually ran -- passing this
+    # fisheye D into cv2.undistort would silently misinterpret it as a
+    # 4-coefficient pinhole model (k1,k2,p1,p2) instead.
+    wrong = cv2.undistort(frames[0][1], K, D_fisheye)
+    assert not np.array_equal(kept[0][1], wrong)

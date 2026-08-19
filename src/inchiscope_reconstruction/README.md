@@ -58,6 +58,18 @@ project discussion):
    `inchiscope_camera/scripts/calibrate_hand_eye.py` writes -- the output
    of that calibration script is exactly the input this package needs.
 
+**Distortion model.** `load_camera_intrinsics()` also returns
+`distortion_model` straight from `camera_info.yaml`, and `select_frames()`
+(Stage 2's undistort step) branches on it: `'plumb_bob'` (the default,
+from `inchiscope_camera/scripts/calibrate_camera.py`) uses `cv2.undistort`;
+`'equidistant'`/`'fisheye'` (from `calibrate_camera_fisheye.py`, needed
+once the lens is at or above roughly 90-100deg field of view -- the NanEye
+ships in variants up to 160deg) uses `cv2.fisheye.undistortImage` instead,
+since the two models' coefficients mean different things and using the
+wrong one doesn't just under-correct, it actively distorts the image
+further. No CLI flag needed -- whichever `camera_info.yaml` you pass
+`--camera-info` already carries this.
+
 ## Running Stage 1-2 against a real bag
 
 ```bash

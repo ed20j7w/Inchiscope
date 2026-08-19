@@ -85,7 +85,11 @@ extra synchronisation machinery at record time.
 OpenCV `calibrateCamera` capture/solve script) that produced it -- see
 `scripts/README.md`. Current calibration: 8mm-square board, 27/27 frames
 used, 0.55px RMS reprojection error, against the confirmed `391,111,480,480`
-crop above.
+crop above. There's also a fisheye/equidistant-model alternative
+(`calibrate_camera_fisheye.py`) for lenses at or above roughly 90-100deg
+field of view -- the NanEye ships in variants up to 160deg, so check which
+one this unit actually is before trusting the standard script's model;
+see `scripts/README.md`'s "If your lens is wide-angle/fisheye" section.
 
 `camera_node` checks the calibration file's `image_width`/`image_height`
 against what it's actually publishing at startup, and **refuses to publish

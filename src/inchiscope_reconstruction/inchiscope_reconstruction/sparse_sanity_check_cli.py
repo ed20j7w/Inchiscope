@@ -59,7 +59,7 @@ def main():
     parser.add_argument('--export-json', default=None, help='write triangulated points (grouped and labelled by which pair produced them, after the same outlier filtering as the report above) plus the full camera trajectory to this JSON file, for visual inspection -- colouring by pair reveals whether an inflated scale comes from pairs disagreeing with each other (pair-to-pair placement inconsistency) vs. one uniformly-too-large cloud (a real scale problem)')
     args = parser.parse_args()
 
-    K, D, img_w, img_h = load_camera_intrinsics(args.camera_info)
+    K, D, distortion_model, img_w, img_h = load_camera_intrinsics(args.camera_info)
     R_ce, t_ce = load_hand_eye_transform(args.hand_eye)
 
     images, poses = read_bag(args.bag_path, args.image_topic, args.pose_topic)
@@ -75,6 +75,7 @@ def main():
         blur_threshold=args.blur_threshold,
         min_baseline_m=args.min_baseline_m,
         min_rotation_deg=args.min_rotation_deg,
+        distortion_model=distortion_model,
     )
     print(f'Stage 1-2: {len(images)} images -> {len(associated)} associated -> {len(kept)} kept '
           f'({dropped_stale} stale, {dropped_blur} blurry, {dropped_redundant} redundant)')

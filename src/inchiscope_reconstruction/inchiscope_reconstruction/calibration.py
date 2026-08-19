@@ -17,7 +17,8 @@ def load_camera_intrinsics(path):
         info = yaml.safe_load(f)
     K = np.array(info['camera_matrix']['data'], dtype=np.float64).reshape(3, 3)
     D = np.array(info['distortion_coefficients']['data'], dtype=np.float64)
-    return K, D, info['image_width'], info['image_height']
+    distortion_model = info.get('distortion_model', 'plumb_bob')
+    return K, D, distortion_model, info['image_width'], info['image_height']
 
 
 def quat_to_rotmat(x, y, z, w):

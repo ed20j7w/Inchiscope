@@ -43,11 +43,22 @@ def pose_delta(T_a, T_b):
 
 
 def select_frames(frames, K, D, blur_threshold=100.0,
-                   min_baseline_m=0.001, min_rotation_deg=2.0):
+                   min_baseline_m=0.001, min_rotation_deg=2.0,
+                   distortion_model='plumb_bob'):
     """frames: [(t_sec, image, T_ref2cam, pose_age_sec), ...] from Stage 1
     (bag_extraction.apply_hand_eye). The first frame is always kept (there
     is no "last kept frame" yet to compare against) if it passes the blur
     check.
+
+    distortion_model comes straight from camera_info.yaml
+    (calibration.load_camera_intrinsics) -- 'plumb_bob' (the default, from
+    calibrate_camera.py) uses cv2.undistort; 'equidistant'/'fisheye' (from
+    calibrate_camera_fisheye.py, needed once the lens is at or above
+    roughly 90-100deg field of view) uses cv2.fisheye.undistortImage
+    instead, since D's 4 coefficients mean something different there and
+    cv2.undistort would only partially correct a fisheye lens's distortion
+    -- worse near the frame edges, exactly the region a wide lens depends
+    on most.
 
     Returns (kept, dropped_blur, dropped_redundant) where
     kept = [(t_sec, undistorted_image, T_ref2cam, pose_age_sec), ...].
@@ -66,7 +77,11 @@ def select_frames(frames, K, D, blur_threshold=100.0,
             if dt < min_baseline_m and dtheta < min_rotation_deg:
                 dropped_redundant += 1
                 continue
-        undistorted = cv2.undistort(img, K, D)
+        if distortion_model in ('equidistant', 'fisheye'):
+            h, w = img.shape[:2]
+            undistorted = cv2.fisheye.undistortImage(img, K, D, Knew=K, new_size=(w, h))
+        else:
+            undistorted = cv2.undistort(img, K, D)
         kept.append((t_sec, undistorted, T_ref2cam, pose_age))
         last_T = T_ref2cam
     return kept, dropped_blur, dropped_redundant

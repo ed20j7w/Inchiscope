@@ -331,7 +331,24 @@ def load_camera_info(path):
         info = yaml.safe_load(f)
     K = np.array(info['camera_matrix']['data'], dtype=np.float64).reshape(3, 3)
     D = np.array(info['distortion_coefficients']['data'], dtype=np.float64)
-    return K, D, info['image_width'], info['image_height']
+    distortion_model = info.get('distortion_model', 'plumb_bob')
+    return K, D, distortion_model, info['image_width'], info['image_height']
+
+
+def solve_pnp_for_model(objp, corners, K, D, distortion_model):
+    """cv2.solvePnP interprets its distCoeffs argument according to the
+    pinhole/rational model -- a 4-element fisheye D (k1,k2,k3,k4) would be
+    silently misread as the pinhole (k1,k2,p1,p2) model, corrupting every
+    pose without any error. For a fisheye/equidistant camera_info.yaml
+    (written by calibrate_camera_fisheye.py), undistort the detected
+    corners with the correct fisheye model first, then solve with zero
+    distortion -- validated against a real OpenCV 4.9.0 build (not this
+    repo's dev-sandbox build, which cv2.fisheye.calibrate itself doesn't
+    work on) to recover rvec/tvec to ~1e-6 of ground truth this way."""
+    if distortion_model in ('equidistant', 'fisheye'):
+        undistorted = cv2.fisheye.undistortPoints(corners, K, D, R=np.eye(3), P=K)
+        return cv2.solvePnP(objp, undistorted, K, None)
+    return cv2.solvePnP(objp, corners, K, D)
 
 
 HAND_EYE_METHODS = [
@@ -359,7 +376,7 @@ def cmd_solve(args):
         print('Need at least 3 captures to solve (15-20+ recommended).', file=sys.stderr)
         sys.exit(1)
 
-    K, D, img_w, img_h = load_camera_info(args.camera_info)
+    K, D, distortion_model, img_w, img_h = load_camera_info(args.camera_info)
 
     objp = np.zeros((args.corners_x * args.corners_y, 3), np.float64)
     objp[:, :2] = np.mgrid[0:args.corners_x, 0:args.corners_y].T.reshape(-1, 2)
@@ -388,7 +405,7 @@ def cmd_solve(args):
             print(f'  no board found in {path}, skipping')
             skipped += 1
             continue
-        ok, rvec, tvec = cv2.solvePnP(objp, corners, K, D)
+        ok, rvec, tvec = solve_pnp_for_model(objp, corners, K, D, distortion_model)
         if not ok:
             print(f'  solvePnP failed for {path}, skipping')
             skipped += 1

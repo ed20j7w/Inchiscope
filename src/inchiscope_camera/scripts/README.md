@@ -77,6 +77,59 @@ reprojection error, so the calibration math itself is sound -- accuracy on
 your actual camera still depends on capture quality (sharp focus, real
 tilt variety, correct square size).
 
+### If your lens is wide-angle/fisheye (>=~90-100deg field of view)
+
+**Use `calibrate_camera_fisheye.py` instead of `calibrate_camera.py` for
+step 3.** The NanEye ships in variants from 90deg up to 160deg field of
+view -- a 120deg unit is a real, named ams-OSRAM part
+(`NEC_B&W_SGA_FOV120_F4.0`) -- and the plain pinhole model `calibrate_camera.py`
+uses is only a good approximation up to roughly 90-100deg; past that its
+residual error grows fastest right at the frame edges. Recalibrating with
+`calibrate_camera.py` again at a different distance or with more frames
+does **not** fix this, since it just refits the same wrong model shape
+again -- it needs the different model in `calibrate_camera_fisheye.py`
+(OpenCV's fisheye/equidistant model, `cv2.fisheye.calibrate`), not more/
+better captures with the pinhole one.
+
+Same two subcommands, same CLI shape (`capture` is the literal same code,
+imported, since capturing frames doesn't depend on the distortion model
+you'll fit them with):
+
+```bash
+python3 calibrate_camera_fisheye.py capture --device /dev/video0 --width 1280 --height 720 \
+    --crop-x 391 --crop-y 111 --crop-width 480 --crop-height 480 \
+    --square-size-mm <the size you printed> --out-dir calib_frames_fisheye/
+python3 calibrate_camera_fisheye.py calibrate --frames-dir calib_frames_fisheye/ \
+    --square-size-mm <same size> --out camera_info_fisheye.yaml
+```
+
+One capture-technique difference from step 2 above: deliberately include
+views where the board reaches toward the frame's edges/corners, not just
+centred ones -- the fisheye model's k3/k4 terms are only well constrained
+by corners sampled out at the extreme radii where the distortion is
+largest. (This is the opposite of hand-eye capture below, where a
+comfortably-centred board is preferred once intrinsics are already known
+-- two different steps, two different sampling needs.)
+
+Output is the same `camera_info.yaml` layout, just with `distortion_model:
+equidistant` and 4 coefficients (k1-k4) instead of `plumb_bob`'s 5 --
+`camera_node.py` copies that field through as-is, and `calibrate_hand_eye.py`
+and `inchiscope_reconstruction` both branch on it automatically, so nothing
+downstream needs a separate flag to know which model is in play. Also
+handles OpenCV's `CALIB_CHECK_COND` failure mode (a single ill-conditioned
+view raises rather than just being down-weighted) by identifying and
+dropping the specific offending view and retrying, rather than failing the
+whole calibration outright.
+
+Validated against a real OpenCV 4.9.0 build (this repo's dev-sandbox
+`cv2` has a build-specific bug in `cv2.fisheye.calibrate` itself --
+confirmed by hand, not a real-world blocker, same situation
+`calibrate_hand_eye.py`'s own note above already flags for
+`cv2.calibrateHandEye`): recovers known synthetic ground-truth K/D to
+~1e-4, and the ill-conditioned-view auto-drop correctly identifies and
+removes a deliberately-bad synthetic view before recovering the correct
+calibration from the rest.
+
 ## 4. Hand-eye calibration (Aurora sensor <-> camera)
 
 The camera and the Aurora 6D EM sensor are mounted together at the
@@ -91,7 +144,14 @@ real transform via standard `AX=XB` hand-eye calibration
 Requires `camera_and_aurora.launch.py` running (needs both
 `/camera/image_raw` and `/aurora/sensor_0/pose_relative_to_reference`
 publishing at once) and the intrinsic calibration above already done (the
-solve step needs `camera_info.yaml` for `solvePnP`).
+solve step needs `camera_info.yaml` for `solvePnP`). Works with either
+`camera_info.yaml`/`camera_info_fisheye.yaml` unchanged -- `solve` reads
+`distortion_model` and automatically undistorts the detected corners with
+the matching model before `solvePnP` (a 4-coefficient fisheye D handed
+straight to `cv2.solvePnP` would otherwise be silently misread as a
+4-coefficient pinhole model instead, corrupting every pose with no error
+-- confirmed by hand to produce a ~0.15 rad rotation error on synthetic
+data with no warning).
 
 ```bash
 # 1. Capture: hold a checkerboard FIXED and stationary somewhere in view,
