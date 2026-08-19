@@ -48,8 +48,6 @@ those are two different steps with different sampling needs.)
 """
 
 import argparse
-import glob
-import os
 import re
 import sys
 
@@ -58,7 +56,7 @@ import numpy as np
 import yaml
 
 from calibrate_camera import cmd_capture
-from calibration_common import find_corners
+from calibration_common import gather_calibration_views
 
 
 def _fisheye_flag(name):
@@ -72,41 +70,21 @@ def _fisheye_flag(name):
 
 
 def cmd_calibrate(args):
-    paths = sorted(glob.glob(os.path.join(args.frames_dir, '*.png')))
-    if not paths:
-        print(f'No .png frames found in {args.frames_dir}', file=sys.stderr)
+    # cv2.fisheye.calibrate is stricter about dtype than cv2.calibrateCamera
+    # -- validated against a real OpenCV 4.9.0 build that float64
+    # (N,1,3)/(N,1,2) per view is what it wants.
+    objpoints, imgpoints, frame_paths_used, image_size, skipped = gather_calibration_views(
+        args.frames_dir, args.corners_x, args.corners_y, args.square_size_mm,
+        object_point_dtype=np.float64,
+    )
+    if not objpoints:
+        print('No usable frames found across all --frames-dir.', file=sys.stderr)
         sys.exit(1)
-
-    objp = np.zeros((args.corners_x * args.corners_y, 1, 3), np.float64)
-    objp[:, 0, :2] = np.mgrid[0:args.corners_x, 0:args.corners_y].T.reshape(-1, 2)
-    objp *= args.square_size_mm
-
-    objpoints = []
-    imgpoints = []
-    frame_paths_used = []
-    image_size = None
-    skipped = 0
-
-    for path in paths:
-        img = cv2.imread(path)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        if image_size is None:
-            image_size = (gray.shape[1], gray.shape[0])
-        found, corners = find_corners(gray, args.corners_x, args.corners_y)
-        if not found:
-            print(f'  no board found in {path}, skipping')
-            skipped += 1
-            continue
-        # cv2.fisheye.calibrate is stricter about dtype than
-        # cv2.calibrateCamera -- validated against a real OpenCV 4.9.0
-        # build that float64 (N,1,3)/(N,1,2) per view is what it wants.
-        objpoints.append(objp.copy())
-        imgpoints.append(corners.astype(np.float64))
-        frame_paths_used.append(path)
 
     if len(objpoints) < 10:
         print(f'Only {len(objpoints)} usable frames (skipped {skipped}) -- capture more '
               'before trusting this calibration.', file=sys.stderr)
+    frames_with_board = len(objpoints)
 
     flags = (
         _fisheye_flag('CALIB_RECOMPUTE_EXTRINSIC')
@@ -155,7 +133,9 @@ def cmd_calibrate(args):
     if dropped_ill_conditioned:
         print(f'Dropped {len(dropped_ill_conditioned)} ill-conditioned view(s): '
               f'{dropped_ill_conditioned}')
-    print(f'Used {len(objpoints)}/{len(paths)} frames, skipped {skipped} (no board found)')
+    print(f'Used {len(objpoints)}/{frames_with_board} frames with a detected board '
+          f'across {len(args.frames_dir)} director{"y" if len(args.frames_dir) == 1 else "ies"} '
+          f'(skipped {skipped} with no board found)')
     print(f'RMS reprojection error: {rms:.4f} px')
     if rms > 1.0:
         print('  >1px is high for this image size -- check the board is flat, '
@@ -219,7 +199,7 @@ def main():
     p_capture.set_defaults(func=cmd_capture)
 
     p_calibrate = sub.add_parser('calibrate', parents=[common])
-    p_calibrate.add_argument('--frames-dir', default='calib_frames_fisheye')
+    p_calibrate.add_argument('--frames-dir', nargs='+', default=['calib_frames_fisheye'], help='one or more directories of *.png calibration frames -- combine a dedicated intrinsics session with hand-eye capture sessions here too (e.g. --frames-dir calib_frames handeye_frames handeye_frames1 handeye_frames2), as long as every directory used the same physical square size and the same crop/resolution')
     p_calibrate.add_argument('--out', default='camera_info_fisheye.yaml')
     p_calibrate.set_defaults(func=cmd_calibrate)
 

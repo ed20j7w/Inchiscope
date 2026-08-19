@@ -70,6 +70,29 @@ before trusting the result), and the recovered camera matrix and
 distortion coefficients. Writes `camera_info.yaml` in the same field
 layout ROS's `sensor_msgs/CameraInfo` / `camera_info_manager` expects.
 
+**`--frames-dir` accepts more than one directory** -- combine this
+dedicated intrinsics session with hand-eye capture sessions too (as long
+as they all used the same physical square size and the same crop/
+resolution), since those already needed a real spread of poses/distances
+for their own reasons and that diversity constrains intrinsics better
+than a narrower dedicated session alone:
+
+```bash
+python3 calibrate_camera.py calibrate \
+    --frames-dir calib_frames/ handeye_frames/ handeye_frames1/ handeye_frames2/ \
+    --square-size-mm <same size> --out camera_info.yaml
+```
+
+Confirmed on real capture data to matter, not just in theory: combining a
+27-frame dedicated session with 3 hand-eye sessions (97 frames total)
+dropped RMS reprojection error from 0.55px to 0.50px, and -- more
+importantly -- meaningfully tightened `calibrate_hand_eye.py`'s own
+checkerboard-in-reference validation spread on one of those hand-eye
+sessions (8.5mm -> 5.6mm, a bigger improvement than switching distortion
+models gave). It did *not* improve a second hand-eye session at all,
+which was itself a useful negative result -- see that script's section
+below for what that split outcome means.
+
 Validated against a synthetic pinhole-camera test (not real hardware, since
 none was available here): given known ground-truth intrinsics, the script
 recovers focal length and principal point to within ~0.5% at 0.11px
